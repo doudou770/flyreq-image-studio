@@ -24,7 +24,8 @@ out.zip
 # database & images (backend)
 backend/nova-tasks.sqlite*
 backend/nova-images/
-
+backend/ccode-tasks.sqlite*
+backend/ccode-images/
 # IDE/Editor configs
 .arts/
 .claude/
