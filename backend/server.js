@@ -1509,10 +1509,19 @@ async function handleApi(req, res, pathname) {
       const env = getRuntimeEnv();
       const rawMode = String(env.PROMPT_GALLERY_MODE || '2').trim();
       const mode = ['1', '2', '3'].includes(rawMode) ? rawMode : '2';
-      sendJson(res, 200, {
-        promptGalleryMode: mode,
-        promptGalleryPasswordEnabled: String(env.PROMPT_GALLERY_PASSWORD || '').trim().length > 0,
-      });
+      sendJson(
+        res,
+        200,
+        {
+          promptGalleryMode: mode,
+          promptGalleryPasswordEnabled: String(env.PROMPT_GALLERY_PASSWORD || '').trim().length > 0,
+        },
+        {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      );
       return true;
     }
 
