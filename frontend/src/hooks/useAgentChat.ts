@@ -7,9 +7,12 @@ import { createNovaTask, getNovaTask, resolveImageTaskProvider, type ImageRefere
 import { fetchImageAsBlob } from '@/lib/image-downloader';
 import {
   getGptImageAdvancedParamsForModel,
+  resolveAgentModel,
+  type AgentModelCatalogEntry,
   type AgentResolvedLayout,
 } from '@/lib/model-capabilities';
 import type { ModelId } from '@/lib/gemini-config';
+import { getCompleteImageModels, loadRegistry } from '@/lib/nova-models';
 import {
   streamAgentChat,
   describeImage,
@@ -66,6 +69,15 @@ export interface PendingUpload {
 }
 
 const PREVIEW_MAX_SIDE = 512;
+
+/** 构建当前可用的图像模型目录，供 Agent 选择模型 */
+function buildModelCatalog(): AgentModelCatalogEntry[] {
+  return getCompleteImageModels(loadRegistry()).map(m => ({
+    id: m.id,
+    name: m.name,
+    maxOutputSize: m.maxOutputSize,
+  }));
+}
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
   const binary = atob(base64);
@@ -195,6 +207,9 @@ export function useAgentChat() {
   const isReeditRef = useRef(false);
   /** 保存当前提案引用，生图完成后若 state proposal 已被清除时仍可获取 reason 等字段 */
   const proposalRef = useRef<AgentProposal | null>(null);
+  /** 镜像 imageModel state，供 runChat 回调中同步读取 */
+  const imageModelRef = useRef(imageModel);
+  useEffect(() => { imageModelRef.current = imageModel; }, [imageModel]);
 
   const getAgentTextModelConfig = useCallback(() => {
     const configured = getDefaultConfiguredTextModel('agent');
@@ -377,6 +392,7 @@ export function useAgentChat() {
 
   const runChat = useCallback((history: AgentMessage[], catalog: AgentImageRecord[]) => {
     const configured = getAgentTextModelConfig();
+    const modelCatalog = buildModelCatalog();
     setPhase('streaming');
     flushAndCancelRaf();
     setStreamingText('');
@@ -391,6 +407,7 @@ export function useAgentChat() {
         history,
         webSearch: webSearchEnabled,
         catalog: catalog.map(img => ({ imgId: img.imgId, description: img.description })),
+        modelCatalog,
       },
       {
         onDelta: token => appendStreamingToken('text', token),
@@ -412,6 +429,18 @@ export function useAgentChat() {
           const text = fullText.trim();
           const reasoning = reasoningBuf.trim();
           if (parsedProposal) {
+            // 模型自动选择：Agent 指定模型 id 或用户要求分辨率档位时自动切换
+            const resolvedModel = resolveAgentModel(
+              imageModelRef.current,
+              parsedProposal.requestedModelId,
+              parsedProposal.requestedOutputSize,
+              modelCatalog,
+            );
+            if (resolvedModel !== imageModelRef.current) {
+              imageModelRef.current = resolvedModel;
+              setImageModelState(resolvedModel);
+              void saveImageModel(resolvedModel);
+            }
             // 有提案：不保存为单独消息，暂存分析文本供生图成功后合并
             pendingAnalysisRef.current = text;
             pendingReasoningRef.current = reasoning;
@@ -774,6 +803,7 @@ export function useAgentChat() {
       gptImageStyle: params.gptImageStyle,
       gptImageBackground: params.gptImageBackground,
       parallelCount: params.parallelCount,
+      requestedModelId: proposal?.requestedModelId,
     };
     proposalRef.current = approvedProposal;
     setProposal(null);
@@ -874,6 +904,7 @@ export function useAgentChat() {
         gptImageStyle: params.gptImageStyle,
         gptImageBackground: params.gptImageBackground,
         parallelCount: params.parallelCount,
+        requestedModelId: approvedProposal.requestedModelId,
       });
       setGeneratingTaskId(null);
       setGeneratingStartedAt(null);
@@ -993,7 +1024,21 @@ export function useAgentChat() {
       gptImageStyle: advancedParams.style,
       gptImageBackground: advancedParams.background,
       parallelCount: pd.parallelCount,
+      requestedModelId: pd.model,
     };
+    // 重新编辑时恢复原始生图模型
+    const reeditCatalog = buildModelCatalog();
+    const resolvedModel = resolveAgentModel(
+      imageModelRef.current,
+      newProposal.requestedModelId,
+      newProposal.requestedOutputSize,
+      reeditCatalog,
+    );
+    if (resolvedModel !== imageModelRef.current) {
+      imageModelRef.current = resolvedModel;
+      setImageModelState(resolvedModel);
+      void saveImageModel(resolvedModel);
+    }
     // 清除上次待定分析，因为用户要重新编辑
     pendingAnalysisRef.current = '';
     pendingReasoningRef.current = '';

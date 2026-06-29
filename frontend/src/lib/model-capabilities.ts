@@ -466,6 +466,16 @@ export function getSupportsTemperature(model: ModelId): boolean {
 
 // ===== Agent 提案参数合法化 =====
 
+/** Agent 可用的图像模型目录项，注入到系统指令中供模型选择 */
+export interface AgentModelCatalogEntry {
+  /** 模型注册 ID（用于 requested_model_id） */
+  id: string;
+  /** 用户可见的模型名称/别名 */
+  name: string;
+  /** 最大输出分辨率: '512' | '1K' | '2K' | '4K' */
+  maxOutputSize: string;
+}
+
 export interface AgentLayoutIntent {
   /** 用户语言明确指定的比例（优先级 1），如 "16:9" */
   requestedAspectRatio?: string;
@@ -501,6 +511,56 @@ function parseRatioString(value?: string): { width: number; height: number } | u
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+// ===== Agent 模型自动选择 =====
+
+const OUTPUT_SIZE_RANK: Record<string, number> = { '512': 0, '1K': 1, '2K': 2, '4K': 3 };
+
+function canModelSupportSize(maxOutputSize: string, requestedSize: string): boolean {
+  return (OUTPUT_SIZE_RANK[maxOutputSize] ?? 0) >= (OUTPUT_SIZE_RANK[requestedSize] ?? 0);
+}
+
+/**
+ * 按优先级解析 Agent 提案中的模型意图，自动选择最合适的图像模型：
+ * 1. Agent 明确指定了模型 id 且该 id 存在 → 直接使用
+ * 2. 用户要求了分辨率档位但当前模型不支持 → 自动选择支持该档位且「够用就好」的模型
+ * 3. 以上都不满足 → 保持当前模型
+ */
+export function resolveAgentModel(
+  currentModel: ModelId,
+  requestedModelId: string | undefined,
+  requestedOutputSize: string | undefined,
+  availableModels: AgentModelCatalogEntry[],
+): ModelId {
+  // 1) Agent 明确指定了模型 → 验证后使用
+  if (requestedModelId) {
+    const found = availableModels.find(m => m.id === requestedModelId);
+    if (found) return found.id;
+  }
+
+  // 2) 用户要求了分辨率档位，当前模型不支持 → 自动选择支持的模型
+  if (requestedOutputSize && requestedOutputSize !== 'auto' && availableModels.length > 0) {
+    const current = availableModels.find(m => m.id === currentModel);
+    const currentCanSupport = current
+      ? canModelSupportSize(current.maxOutputSize, requestedOutputSize)
+      : true;
+    if (!currentCanSupport) {
+      const candidates = availableModels.filter(m =>
+        canModelSupportSize(m.maxOutputSize, requestedOutputSize),
+      );
+      if (candidates.length > 0) {
+        // 优先选择最大分辨率刚好满足需求的模型（避免不必要的 4K 模型）
+        candidates.sort(
+          (a, b) => (OUTPUT_SIZE_RANK[a.maxOutputSize] ?? 0) - (OUTPUT_SIZE_RANK[b.maxOutputSize] ?? 0),
+        );
+        return candidates[0].id;
+      }
+    }
+  }
+
+  // 3) 无需切换
+  return currentModel;
 }
 
 /**
