@@ -257,15 +257,15 @@ export function WorkspaceShell() {
                   type="button"
                   onClick={promptGallery.handlePromptGalleryEntry}
                   className="flex items-center gap-2 px-2 pt-3 pb-1 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label="Nova Image logo"
+                  aria-label="FlyReq Image logo"
                 >
                   <img
                     src="/favicon.png"
-                    alt="Nova Image"
+                    alt="FlyReq Image"
                     className="h-8 w-8 shrink-0 rounded-lg object-cover ring-1 ring-border/60"
                   />
                   <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold tracking-tight leading-tight">Nova Image</h2>
+                    <h2 className="truncate text-base font-semibold tracking-tight leading-tight">FlyReq Image</h2>
                     <p className="truncate text-[11px] text-muted-foreground leading-tight">{t('app.subtitle')}</p>
                   </div>
                 </button>

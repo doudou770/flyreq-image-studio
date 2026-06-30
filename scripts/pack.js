@@ -53,7 +53,7 @@ const rootPkg = {
   name: 'nova-image',
   version: backendPkg.version || '1.0.0',
   private: true,
-  description: 'Nova Image - 生产部署包',
+  description: 'FlyReq Image - 生产部署包',
   scripts: {
     start: 'node backend/server.js',
   },

@@ -2,7 +2,7 @@
   "name": "nova-image",
   "version": "3.1.1",
   "private": true,
-  "description": "Nova Image - AI 图像生成工作台",
+  "description": "FlyReq Image - AI 图像生成工作台",
   "scripts": {
     "dev": "cd frontend && npm run build && cd ../backend && cross-env NODE_ENV=production node server.js",
     "dev:old": "cd ../backend && cross-env NODE_ENV=production node server.js",

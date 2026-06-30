@@ -6,10 +6,10 @@ export const LOCALE_STORAGE_KEY = 'nova-locale';
 
 const dictionaries = {
   en: {
-    'app.title': 'Nova Image',
+    'app.title': 'FlyReq Image',
     'app.subtitle': 'Batch API image generator',
-    'app.metadataTitle': 'Nova Image - AI Image Generator',
-    'app.metadataDescription': 'Nova Image AI image generation workspace',
+    'app.metadataTitle': 'FlyReq Image - AI Image Generator',
+    'app.metadataDescription': 'FlyReq Image AI image generation workspace',
     'common.cancel': 'Cancel',
     'common.confirm': 'Confirm',
     'common.delete': 'Delete',
@@ -74,10 +74,10 @@ const dictionaries = {
     'missingApiKey.description': 'Nova mode needs an API key before it can generate or transform images.',
   },
   zh: {
-    'app.title': 'Nova Image',
+    'app.title': 'FlyReq Image',
     'app.subtitle': '批量 API 图像生成器',
-    'app.metadataTitle': 'Nova Image - AI 图像生成器',
-    'app.metadataDescription': 'Nova Image AI 图像生成工作台',
+    'app.metadataTitle': 'FlyReq Image - AI 图像生成器',
+    'app.metadataDescription': 'FlyReq Image AI 图像生成工作台',
     'common.cancel': '取消',
     'common.confirm': '确认',
     'common.delete': '删除',

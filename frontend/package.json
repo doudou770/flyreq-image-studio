@@ -2,7 +2,7 @@
   "name": "nova-image-frontend",
   "version": "3.1.1",
   "private": true,
-  "description": "Nova Image 前端 - Next.js 应用",
+  "description": "FlyReq Image 前端 - Next.js 应用",
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",

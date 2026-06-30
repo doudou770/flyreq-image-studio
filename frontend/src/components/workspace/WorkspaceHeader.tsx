@@ -136,16 +136,16 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
             type="button"
             onClick={onLogoClick}
             className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:rounded-xl"
-            aria-label="Nova Image logo"
+            aria-label="FlyReq Image logo"
           >
             <img
               src="/favicon.png"
-              alt="Nova Image logo"
+              alt="FlyReq Image logo"
               className="h-8 w-8 flex-shrink-0 rounded-lg object-cover ring-1 ring-border/60 sm:h-11 sm:w-11 sm:rounded-xl"
             />
           </button>
           <div className="hidden min-w-0 space-y-1 sm:block">
-            <h1 className="truncate text-2xl font-semibold tracking-tight">Nova Image</h1>
+            <h1 className="truncate text-2xl font-semibold tracking-tight">FlyReq Image</h1>
             <p className="text-sm text-muted-foreground">{t('app.subtitle')}</p>
           </div>
         </div>

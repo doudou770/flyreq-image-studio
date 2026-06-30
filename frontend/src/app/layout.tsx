@@ -6,8 +6,8 @@ import { ServiceWorkerManager } from "@/components/ServiceWorkerManager";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Nova Image - AI Image Generator",
-  description: "Nova Image AI image generation workspace",
+  title: "FlyReq Image - AI Image Generator",
+  description: "FlyReq Image AI image generation workspace",
   icons: {
     icon: [
       { url: '/favicon.png', type: 'image/png' },
