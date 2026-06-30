@@ -364,6 +364,7 @@ export async function submitTextToImage(
           gptImageStyle: input.gptImageStyle,
           gptImageBackground: input.gptImageBackground,
           gptImageOutputFormat: input.gptImageOutputFormat,
+          streamImages: provider.streamImages,
           parallelCount: input.parallelCount,
           images: [],
         });
@@ -437,6 +438,7 @@ export async function submitImageToImage(
         gptImageStyle: input.gptImageStyle,
         gptImageBackground: input.gptImageBackground,
         gptImageOutputFormat: input.gptImageOutputFormat,
+        streamImages: provider.streamImages,
         parallelCount: input.parallelCount,
         images: imageReferences,
       });

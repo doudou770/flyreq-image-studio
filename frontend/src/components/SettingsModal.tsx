@@ -87,6 +87,7 @@ function createImageModelDraft(): ImageModelConfig {
     maxRefImages: preset.maxRefImages,
     maxOutputSize: preset.maxOutputSize,
     supportsAdvancedParams: preset.supportsAdvancedParams,
+    streamImages: preset.streamImages,
   };
 }
 
@@ -104,6 +105,7 @@ function createExternalImageModelDraft(config: ExternalModelConfig): ImageModelC
     maxRefImages: config.maxRefImages || preset.maxRefImages,
     maxOutputSize: config.maxOutputSize || preset.maxOutputSize,
     supportsAdvancedParams: protocol === 'openai' ? preset.supportsAdvancedParams : false,
+    streamImages: protocol === 'openai' ? Boolean(config.streamImages ?? preset.streamImages) : false,
   };
 }
 
@@ -121,6 +123,7 @@ function patchImageModelFromExternal(model: ImageModelConfig, config: ExternalMo
     maxRefImages: config.maxRefImages || model.maxRefImages || preset.maxRefImages,
     maxOutputSize: config.maxOutputSize || model.maxOutputSize || preset.maxOutputSize,
     supportsAdvancedParams: protocol === 'openai' ? model.supportsAdvancedParams || preset.supportsAdvancedParams : false,
+    streamImages: protocol === 'openai' ? Boolean(config.streamImages ?? model.streamImages ?? preset.streamImages) : false,
   };
 }
 
@@ -283,9 +286,11 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
         next.maxRefImages = preset.maxRefImages;
         next.maxOutputSize = preset.maxOutputSize;
         next.supportsAdvancedParams = preset.supportsAdvancedParams;
+        next.streamImages = preset.streamImages;
       }
       if (patch.protocol === 'google') {
         next.supportsAdvancedParams = false;
+        next.streamImages = false;
       }
       return next;
     }));
@@ -629,15 +634,27 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                       />
                     </div>
                     {selectedImageModel.protocol === 'openai' && (
-                      <div className="flex items-center justify-between rounded-lg border px-3 py-2 md:col-span-2">
-                        <div>
-                          <p className="text-sm font-medium">Image 2 额外参数</p>
-                          <p className="text-xs text-muted-foreground">透明度、质量、风格控件默认开启，用户可手动关闭。</p>
+                      <div className="grid gap-3 md:col-span-2">
+                        <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium">Image 2 额外参数</p>
+                            <p className="text-xs text-muted-foreground">透明度、质量、风格控件默认开启，用户可手动关闭。</p>
+                          </div>
+                          <Switch
+                            checked={selectedImageModel.supportsAdvancedParams}
+                            onCheckedChange={(checked) => handleUpdateImageModel(selectedImageModel.id, { supportsAdvancedParams: checked })}
+                          />
                         </div>
-                        <Switch
-                          checked={selectedImageModel.supportsAdvancedParams}
-                          onCheckedChange={(checked) => handleUpdateImageModel(selectedImageModel.id, { supportsAdvancedParams: checked })}
-                        />
+                        <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium">流式图片请求</p>
+                            <p className="text-xs text-muted-foreground">向 OpenAI Images 兼容接口发送 stream=true，可降低 Cloudflare/Nginx 长连接 504 风险；上游不支持时后端会自动回退非流式。</p>
+                          </div>
+                          <Switch
+                            checked={Boolean(selectedImageModel.streamImages)}
+                            onCheckedChange={(checked) => handleUpdateImageModel(selectedImageModel.id, { streamImages: checked })}
+                          />
+                        </div>
                       </div>
                     )}
                     <div className="md:col-span-2 flex justify-end">

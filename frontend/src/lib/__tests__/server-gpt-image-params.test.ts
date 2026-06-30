@@ -21,14 +21,14 @@ describe('backend GPT Image advanced params forwarding', () => {
   it('forwards quality/background/output_format and conditional style in multipart edits', () => {
     expect(serverSource).toContain("formData.append('quality', advancedParams.quality)");
     expect(serverSource).toContain("formData.append('background', advancedParams.background)");
-    expect(serverSource).toContain("formData.append('output_format', 'png')");
+    expect(serverSource).toContain("formData.append('output_format', advancedParams.outputFormat)");
     expect(serverSource).toContain("formData.append('style', advancedParams.style)");
   });
 
   it('forwards quality/background/output_format and conditional style in JSON generations', () => {
     expect(serverSource).toContain('quality: advancedParams.quality');
     expect(serverSource).toContain('background: advancedParams.background');
-    expect(serverSource).toContain("output_format: 'png'");
+    expect(serverSource).toContain('output_format: advancedParams.outputFormat');
     expect(serverSource).toContain("advancedParams.style === 'vivid' || advancedParams.style === 'natural' ? { style: advancedParams.style } : {}");
   });
 
@@ -42,6 +42,13 @@ describe('backend GPT Image advanced params forwarding', () => {
     expect(serverSource).toContain('function resolveGptImageRequestSize(request)');
     expect(serverSource).toContain('const customSize = normalizeCustomImageSize(request.customSize, 4096)');
     expect(serverSource).toContain('return getSupportedGptImageSize(request.model, request.outputSize, request.aspectRatio)');
-    expect(serverSource).toContain('return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), { baseUrl });');
+    expect(serverSource).toContain('return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {');
+  });
+
+  it('supports optional streaming image requests with non-stream fallback', () => {
+    expect(serverSource).toContain("formData.append('stream', 'true')");
+    expect(serverSource).toContain('...(stream ? { stream: true } : {})');
+    expect(serverSource).toContain('stream: Boolean(request.streamImages)');
+    expect(serverSource).toContain('上游不支持流式图片请求，已回退非流式');
   });
 });

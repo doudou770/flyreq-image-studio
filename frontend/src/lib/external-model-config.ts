@@ -11,6 +11,7 @@ export type ExternalModelConfig = {
   apiKey?: string;
   maxRefImages?: number;
   maxOutputSize?: ImageOutputSize;
+  streamImages?: boolean;
 };
 
 const CONFIG_QUERY_KEYS = new Set([
@@ -48,6 +49,15 @@ function readNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
 }
 
+function readBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return undefined;
+}
+
 function parseProviderJson(value: string | null): Record<string, unknown> | null {
   if (!value) return null;
   try {
@@ -76,6 +86,7 @@ function normalizeProviderPayload(payload: Record<string, unknown>): ExternalMod
     apiKey: readString(payload.apiKey),
     maxRefImages: readNumber(payload.maxRefImages),
     maxOutputSize: normalizeOutputSize(readString(payload.maxOutputSize) || null),
+    streamImages: readBoolean(payload.streamImages),
   };
 }
 
@@ -102,6 +113,7 @@ export function parseExternalModelConfig(url: URL): ExternalModelConfig | null {
     apiKey: readTrimmed(url.searchParams, 'apiKey'),
     maxRefImages,
     maxOutputSize: normalizeOutputSize(url.searchParams.get('maxOutputSize')),
+    streamImages: readBoolean(url.searchParams.get('streamImages') ?? undefined),
   };
 }
 

@@ -351,6 +351,7 @@ export function useGifWorkflow(): UseGifWorkflowResult {
         gptImageStyle: advancedParams.style,
         gptImageBackground: advancedParams.background,
         gptImageOutputFormat: advancedParams.outputFormat,
+        streamImages: provider.streamImages,
         parallelCount: 1,
         images: buildImageReferences(template, refsForSubmit),
       });

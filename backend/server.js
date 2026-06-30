@@ -644,6 +644,7 @@ function validateCreatePayload(body) {
   if (!Array.isArray(body.images)) body.images = [];
   body.baseUrl = normalizeProtocolBaseUrl(body.protocol, body.baseUrl);
   if (!body.baseUrl) throw new Error('缺少 API 基础地址');
+  body.streamImages = body.protocol === 'openai' ? Boolean(body.streamImages) : false;
   // 开源版：不做模型级参数规范化，前端负责传递正确的参数，后端无条件透传
 }
 
@@ -911,6 +912,9 @@ function getErrorMessageFromPayload(payload) {
 
 function getUpstreamErrorText(text) {
   const trimmed = String(text || '').trim();
+  if (isLikelyHtmlResponse(trimmed)) {
+    return '上游网关返回 HTML 错误页面，通常是 Cloudflare/Nginx 等网关在图片生成完成前截断了长连接。可尝试开启模型的流式图片请求，或改用内网/灰云地址。';
+  }
   const data = parseJsonSafely(trimmed);
   const message = getErrorMessageFromPayload(data) || getMessageFromPayload(data);
   if (message) return message;
@@ -1043,11 +1047,25 @@ async function requestGptImage(apiKey, request, resolvedSize, options = {}) {
   const endpoint = request.mode === 'image-to-image'
     ? '/v1/images/edits'
     : '/v1/images/generations';
-  const response = await fetchWithTimeout(
-    `${baseUrl}${endpoint}`,
-    createGptImageRequestInit(apiKey, request, resolvedSize, options)
-  );
-  return parseGptImageResponse(response);
+  const stream = Boolean(options.stream);
+
+  try {
+    const response = await fetchWithTimeout(
+      `${baseUrl}${endpoint}`,
+      createGptImageRequestInit(apiKey, request, resolvedSize, { ...options, stream })
+    );
+    return await parseGptImageResponse(response);
+  } catch (error) {
+    if (!stream || !isImageStreamUnsupportedError(error)) {
+      throw error;
+    }
+    console.warn('[image-stream] 上游不支持流式图片请求，已回退非流式:', error?.message || error);
+    const response = await fetchWithTimeout(
+      `${baseUrl}${endpoint}`,
+      createGptImageRequestInit(apiKey, request, resolvedSize, { ...options, stream: false })
+    );
+    return parseGptImageResponse(response);
+  }
 }
 
 // ===== 加强网络连接：启用 TCP keepalive，防止 Docker 回环连接被静默断开 =====
@@ -1085,7 +1103,10 @@ async function generateFlyreqImage(apiKey, request) {
   // 开源版：根据前端传入的 protocol 字段路由到对应的 API 协议
   const baseUrl = request.baseUrl || resolveFlyreqApiBaseUrl();
   if (request.protocol === 'openai') {
-    return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), { baseUrl });
+    return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {
+      baseUrl,
+      stream: Boolean(request.streamImages),
+    });
   }
   // 默认走 Google Gemini 协议
   return generateFlyreqGeminiImage(apiKey, request, { baseUrl });
