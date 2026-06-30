@@ -674,6 +674,7 @@ function createTask(body, req) {
     gptImageStyle: body.gptImageStyle,
     gptImageBackground: body.gptImageBackground,
     gptImageOutputFormat: body.gptImageOutputFormat,
+    streamImages: body.streamImages,
     parallelCount: body.parallelCount,
     images: body.images.map(img => ({ mimeType: img.mimeType })),
   };

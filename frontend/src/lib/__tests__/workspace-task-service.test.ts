@@ -126,6 +126,13 @@ describe('submitTextToImage', () => {
   it('passes GPT Image advanced params into createFlyreqTask payload', async () => {
     const job = makeJob();
     const { actions, getJob } = createActions(job);
+    mockedResolveImageTaskProvider.mockReturnValue({
+      apiKey: 'test-api-key',
+      baseUrl: 'https://api.openai.com',
+      protocol: 'openai',
+      modelId: 'gpt-image-2',
+      streamImages: true,
+    });
 
     await submitTextToImage({
       prompts: ['cut out subject'],
@@ -148,6 +155,7 @@ describe('submitTextToImage', () => {
       gptImageStyle: 'vivid',
       gptImageBackground: 'transparent',
       gptImageOutputFormat: 'webp',
+      streamImages: true,
     }));
     expect(actions.addJob).toHaveBeenCalledWith(expect.objectContaining({
       gptImageQuality: 'high',

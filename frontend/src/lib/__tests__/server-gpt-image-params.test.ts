@@ -48,6 +48,7 @@ describe('backend GPT Image advanced params forwarding', () => {
   it('supports optional streaming image requests with non-stream fallback', () => {
     expect(serverSource).toContain("formData.append('stream', 'true')");
     expect(serverSource).toContain('...(stream ? { stream: true } : {})');
+    expect(serverSource).toContain('streamImages: body.streamImages');
     expect(serverSource).toContain('stream: Boolean(request.streamImages)');
     expect(serverSource).toContain('上游不支持流式图片请求，已回退非流式');
   });
