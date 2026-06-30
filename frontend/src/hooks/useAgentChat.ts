@@ -856,6 +856,7 @@ export function useAgentChat() {
         gptImageStyle: params.gptImageStyle,
         gptImageBackground: params.gptImageBackground,
         gptImageOutputFormat: params.gptImageOutputFormat,
+        streamImages: provider.streamImages,
         parallelCount: params.parallelCount,
         images: references,
       });

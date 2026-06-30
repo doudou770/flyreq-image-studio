@@ -19,6 +19,7 @@ export interface ImageModelConfig {
   maxRefImages: number;
   maxOutputSize: ImageOutputSize;
   supportsAdvancedParams: boolean;
+  streamImages?: boolean;
 }
 
 export interface TextModelConfig {
@@ -40,6 +41,7 @@ export interface BuiltinImagePreset {
   maxRefImages: number;
   maxOutputSize: ImageOutputSize;
   supportsAdvancedParams: boolean;
+  streamImages?: boolean;
 }
 
 export interface DefaultModels {
@@ -70,6 +72,7 @@ export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePre
     maxRefImages: 3,
     maxOutputSize: '1K',
     supportsAdvancedParams: false,
+    streamImages: false,
   },
   'gemini-3-pro-image-preview': {
     id: 'gemini-3-pro-image-preview',
@@ -80,6 +83,7 @@ export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePre
     maxRefImages: 11,
     maxOutputSize: '4K',
     supportsAdvancedParams: false,
+    streamImages: false,
   },
   'gemini-3.1-flash-image-preview': {
     id: 'gemini-3.1-flash-image-preview',
@@ -90,6 +94,7 @@ export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePre
     maxRefImages: 14,
     maxOutputSize: '4K',
     supportsAdvancedParams: false,
+    streamImages: false,
   },
   'gpt-image-2': {
     id: 'gpt-image-2',
@@ -100,6 +105,7 @@ export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePre
     maxRefImages: 16,
     maxOutputSize: '4K',
     supportsAdvancedParams: true,
+    streamImages: false,
   },
 };
 
@@ -150,6 +156,7 @@ export const DEFAULT_IMAGE_MODELS: ImageModelConfig[] = [
     maxRefImages: 16,
     maxOutputSize: '4K',
     supportsAdvancedParams: true,
+    streamImages: false,
   },
 ];
 
@@ -196,6 +203,7 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
     supportsAdvancedParams: protocol === 'openai'
       ? (typeof raw.supportsAdvancedParams === 'boolean' ? raw.supportsAdvancedParams : preset.supportsAdvancedParams)
       : false,
+    streamImages: protocol === 'openai' ? Boolean(raw.streamImages ?? preset.streamImages) : false,
   };
 }
 
