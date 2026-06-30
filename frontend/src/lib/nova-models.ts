@@ -58,6 +58,7 @@ export interface NovaModelRegistry {
 }
 
 const REGISTRY_KEY = 'nova-model-registry';
+const DEFAULT_FLYREQ_IMAGE_MODEL_ID = 'flyreq-gpt-image-2';
 
 export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePreset> = {
   'gemini-2.5-flash-image': {
@@ -136,6 +137,21 @@ export const DEFAULT_DEFAULTS: DefaultModels = {
   promptOptimize: '',
   imageDescribe: '',
 };
+
+export const DEFAULT_IMAGE_MODELS: ImageModelConfig[] = [
+  {
+    id: DEFAULT_FLYREQ_IMAGE_MODEL_ID,
+    protocol: 'openai',
+    name: 'FlyReq',
+    modelId: 'gpt-image-2',
+    apiKey: '',
+    baseUrl: 'https://flyreq.com',
+    builtinPreset: 'gpt-image-2',
+    maxRefImages: 16,
+    maxOutputSize: '4K',
+    supportsAdvancedParams: true,
+  },
+];
 
 function isProviderProtocol(value: unknown): value is ProviderProtocol {
   return value === 'google' || value === 'openai';
@@ -220,11 +236,12 @@ function isCompleteTextModel(model: Partial<TextModelConfig>): model is TextMode
 }
 
 function ensureImageModels(raw?: unknown): ImageModelConfig[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
+  if (!Array.isArray(raw) || raw.length === 0) return DEFAULT_IMAGE_MODELS;
+  const models = raw
     .map((item) => normalizeImageModelConfig((item || {}) as Partial<ImageModelConfig>))
     .filter((item): item is ImageModelConfig => Boolean(item))
     .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index);
+  return models.length > 0 ? models : DEFAULT_IMAGE_MODELS;
 }
 
 function ensureTextModels(raw?: unknown): TextModelConfig[] {
@@ -254,7 +271,7 @@ function ensureDefaults(raw: Partial<DefaultModels> | undefined, imageModels: Im
 
 function getInitialRegistry(): NovaModelRegistry {
   return {
-    imageModels: [],
+    imageModels: DEFAULT_IMAGE_MODELS,
     textModels: [],
     defaults: DEFAULT_DEFAULTS,
   };

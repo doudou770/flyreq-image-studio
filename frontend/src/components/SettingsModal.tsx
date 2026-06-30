@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  KeyRound,
   ImageIcon,
   Info,
   Plus,
@@ -27,7 +28,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
@@ -53,7 +54,7 @@ import { syncDynamicModelExports } from '@/lib/gemini-config';
 import { exportAllData, importAllData, downloadBlob, generateBackupFilename, type BackupProgress as BackupProgressType } from '@/lib/backup-utils';
 import { checkModelsAvailability, type ModelStatus } from '@/lib/ccode-task-client';
 import { hasConfiguredImageModel, isPromptOptimizeEnabled, setPromptOptimizeEnabled } from '@/lib/settings-storage';
-import { BA_RANDOM_URL, BING_WALLPAPER_URL } from '@/lib/constants';
+import { BA_RANDOM_URL, BING_WALLPAPER_URL, IMAGE_MODEL_KEY_GUIDE } from '@/lib/constants';
 import { PROMPT_DATA_SOURCES, getPromptSourceLabel } from '@/lib/prompt-gallery-data';
 
 interface SettingsModalProps {
@@ -385,6 +386,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
 
   const completeImageOptions = imageModels.filter(isCompleteImageModel).map((model) => ({ value: model.id, label: model.name }));
   const completeTextOptions = textModels.filter(isCompleteTextModel).map((model) => ({ value: model.id, label: model.name }));
+  const needsImageModelKeyGuide = !imageModels.some(isCompleteImageModel);
   const selectedImageOutputSizes = selectedImageModel
     ? getImageModelOutputSizes({
         ...selectedImageModel,
@@ -437,11 +439,34 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
             {error && <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
             {success && <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-400">{success}</div>}
 
+            {needsImageModelKeyGuide && (
+              <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                    <KeyRound className="h-4 w-4" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-medium text-foreground">{IMAGE_MODEL_KEY_GUIDE.title}</p>
+                    <p className="text-muted-foreground">{IMAGE_MODEL_KEY_GUIDE.description}</p>
+                  </div>
+                </div>
+                <a
+                  href={IMAGE_MODEL_KEY_GUIDE.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={buttonVariants({ className: 'shrink-0 gap-2' })}
+                >
+                  {IMAGE_MODEL_KEY_GUIDE.ctaLabel}
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </div>
+            )}
+
             <div className="rounded-xl border p-4 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="font-medium">图片模型</p>
-                  <p className="text-xs text-muted-foreground">无默认示范记录。请至少完成一个图片模型。</p>
+                  <p className="text-xs text-muted-foreground">默认提供 FlyReq 图片模型，填入 API Key 后即可使用。</p>
                 </div>
                 <Button variant="outline" size="sm" className="gap-2" onClick={handleAddImageModel}>
                   <Plus className="w-4 h-4" />
@@ -766,18 +791,19 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
           <TabsContent value="about" className="min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 mt-0">
             <div className="space-y-4 text-sm">
               <h3 className="text-lg font-medium">FlyReq Image <span className="text-xs text-muted-foreground font-normal">v{process.env.NEXT_PUBLIC_APP_VERSION}</span></h3>
-              <p className="text-sm text-muted-foreground">
-                项目地址：
-                {' '}
+              <div className="rounded-lg border border-primary/20 bg-primary/10 p-3">
+                <p className="font-medium text-foreground">{IMAGE_MODEL_KEY_GUIDE.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{IMAGE_MODEL_KEY_GUIDE.description}</p>
                 <a
-                  href="https://github.com/tianjiangqiji/nova-image-studio"
+                  href={IMAGE_MODEL_KEY_GUIDE.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                  className="mt-2 inline-flex items-center gap-1 text-primary hover:underline"
                 >
-                  tianjiangqiji/nova-image-studio <ExternalLink className="w-3 h-3" />
+                  {IMAGE_MODEL_KEY_GUIDE.ctaLabel}
+                  <ExternalLink className="w-3 h-3" />
                 </a>
-              </p>
+              </div>
 
               <details className="group rounded-lg bg-muted/50 p-3">
                 <summary className="flex cursor-pointer select-none items-center gap-2 font-medium">

@@ -7,6 +7,7 @@ import {
   isPromptOptimizeEnabled,
   setPromptOptimizeEnabled,
 } from '@/lib/settings-storage';
+import { loadRegistry } from '@/lib/nova-models';
 
 const storage = new Map<string, string>();
 
@@ -74,6 +75,21 @@ describe('settings-storage model availability', () => {
 
   it('keeps prompt optimize disabled by default', () => {
     expect(isPromptOptimizeEnabled()).toBe(false);
+  });
+
+  it('ships a default FlyReq image model without unlocking image workflows before the key is filled', () => {
+    const registry = loadRegistry();
+    expect(registry.imageModels[0]).toMatchObject({
+      protocol: 'openai',
+      name: 'FlyReq',
+      modelId: 'gpt-image-2',
+      apiKey: '',
+      baseUrl: 'https://flyreq.com',
+      builtinPreset: 'gpt-image-2',
+      maxRefImages: 16,
+      maxOutputSize: '4K',
+    });
+    expect(hasConfiguredImageModel()).toBe(false);
   });
 
   it('blocks prompt optimize when no complete text model exists', () => {
