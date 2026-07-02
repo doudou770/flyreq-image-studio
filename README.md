@@ -169,7 +169,7 @@ nova-image-studio/
 
 ```bash
 # 1. 复制环境变量文件（如果不是从clone下来的，则自己新建并复制过来即可）
-cp backend/.env.example backend/.env
+cp backend/.env.example .env
 
 # 2. 编辑 .env 按需调整配置
 
