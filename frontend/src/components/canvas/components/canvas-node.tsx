@@ -406,7 +406,7 @@ function TextNodeBody({
             <span className="text-[10px] font-bold">{isMarkdown ? "Tx" : "Md"}</span>
           </button>
         )}
-        {!isMarkdown && onAiGenerate && (
+        {onAiGenerate && (
           <button
             type="button"
             title="AI 生成文本"
