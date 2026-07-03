@@ -16,7 +16,6 @@ import { cn } from '@/lib/utils';
 import {
   MODEL_OPTIONS,
   MODEL_IMAGE_LIMITS,
-  isGptImageModel,
   type ModelId,
 } from '@/lib/gemini-config';
 import type { AspectRatio, OutputSize } from '@/lib/job-store';
@@ -167,13 +166,17 @@ export function AgentProposalCard({
   const supportsAdvancedParams = supportsGptImageAdvancedParams(imageModel);
   const autoLayoutAvailable = supportsAutoLayout(imageModel);
   const autoLayoutLocked = autoLayoutAvailable && layout.outputSize === 'auto';
-  const showSizeControl = !isGptImageModel(imageModel) && (sizeOptions.length > 1 || autoLayoutAvailable);
+  const showSizeControl = sizeOptions.length > 1 || autoLayoutAvailable;
   const showAspectControl = !autoLayoutLocked && aspectRatioOptions.length > 0;
   const customSizeAvailable = supportsCustomSize(imageModel) && !autoLayoutLocked;
   const customSizeMaxSide = getCustomSizeMaxSide(imageModel) || 2048;
   const displaySizeLabel = layout.customSize || getOutputSizeLabel(layout.outputSize);
   const currentAspectLabel = aspectRatioOptions.find(o => o.value === layout.aspectRatio)?.resolution
     || (layout.aspectRatio === 'auto' ? '自动' : layout.aspectRatio);
+  const getResolutionForSize = (size: OutputSize) => {
+    if (size === 'auto') return '自动';
+    return getAspectRatioOptions(imageModel, size).find(option => option.value === layout.aspectRatio)?.resolution || '';
+  };
   const advancedParams: GptImageAdvancedParams = {
     quality: layout.gptImageQuality,
     style: layout.gptImageStyle,
@@ -244,7 +247,7 @@ export function AgentProposalCard({
       setLayout(prev => ({ ...prev, outputSize: 'auto', aspectRatio: 'auto', customSize: undefined }));
       return;
     }
-    const fallbackSize: OutputSize = sizeOptions[0]?.value || '1K';
+    const fallbackSize: OutputSize = sizeOptions.find(option => !option.disabled)?.value || '1K';
     const ratios = getAspectRatioOptions(imageModel, fallbackSize).map(o => o.value);
     setLayout(prev => ({
       ...prev,
@@ -255,6 +258,7 @@ export function AgentProposalCard({
   };
 
   const handleSizeChange = (size: OutputSize) => {
+    if (sizeOptions.find(option => option.value === size)?.disabled) return;
     setLayout(prev => {
       const ratios = getAspectRatioOptions(imageModel, size).map(o => o.value);
       const nextRatio: AspectRatio = ratios.includes(prev.aspectRatio) ? prev.aspectRatio : (ratios[0] || '1:1');
@@ -415,24 +419,29 @@ export function AgentProposalCard({
             <PopoverTrigger
               disabled={busy}
               className={cn(buttonVariants({ variant: 'outline', size: 'xs' }), 'gap-1')}
-              title="清晰度"
+              title={`输出尺寸${currentAspectLabel ? `：${currentAspectLabel}` : ''}`}
             >
-              <Sparkles className="h-3 w-3" />
+              <Maximize className="h-3 w-3" />
               <span className="text-[11px]">{displaySizeLabel}</span>
             </PopoverTrigger>
-            <PopoverContent className="w-44 p-1" align="start">
+            <PopoverContent className="w-56 p-1" align="start">
               {sizeOptions.map(option => (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => handleSizeChange(option.value)}
+                  disabled={option.disabled}
+                  title={option.disabledReason}
                   className={cn(
-                    'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted',
+                    'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent',
                     option.value === layout.outputSize && !layout.customSize && 'bg-muted font-medium'
                   )}
                 >
-                  {option.label}
-                  {option.value === layout.outputSize && !layout.customSize && <Check className="h-3.5 w-3.5" />}
+                  <span>{option.label}</span>
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {getResolutionForSize(option.value)}
+                    {option.value === layout.outputSize && !layout.customSize && <Check className="h-3.5 w-3.5 text-foreground" />}
+                  </span>
                 </button>
               ))}
               {customSizeAvailable && (
@@ -469,14 +478,15 @@ export function AgentProposalCard({
                     key={option.value}
                     type="button"
                     onClick={() => handleAspectChange(option.value)}
-                    className={cn(
-                      'flex flex-col items-start rounded-md px-2.5 py-1.5 text-sm hover:bg-muted',
-                      option.value === layout.aspectRatio && 'bg-muted font-medium'
-                    )}
-                  >
-                    <span>{option.value}</span>
-                  </button>
-                ))}
+                  className={cn(
+                    'flex flex-col items-start rounded-md px-2.5 py-1.5 text-sm hover:bg-muted',
+                    option.value === layout.aspectRatio && 'bg-muted font-medium'
+                  )}
+                >
+                  <span>{option.value}</span>
+                  {option.resolution && <span className="text-[10px] text-muted-foreground">{option.resolution}</span>}
+                </button>
+              ))}
               </div>
             </PopoverContent>
           </Popover>

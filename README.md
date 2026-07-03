@@ -300,6 +300,12 @@ FLYREQ_IMAGE_DIR: /app/backend/data/flyreq-images
 
 因此任务数据库和生成图片都会落在宿主机 `/opt/fis/data/` 下。
 
+`docker-compose.yml` 默认加入 1Panel 常用外部网络 `1panel-network`，便于直接通过 Docker 内网访问同一网络中的 new-api 等服务。若你的 1Panel 网络名称不同，请修改 `docker-compose.yml` 里的 `networks` 名称；若不是 1Panel 环境，可删除 `networks` 配置或先创建同名网络：
+
+```bash
+sudo docker network create 1panel-network
+```
+
 ### 环境变量
 
 通过 `/opt/fis/.env` 注入，无需修改镜像。
@@ -312,6 +318,20 @@ sudo docker compose restart
 ```
 
 队列、限流、提示词广场等运行时配置会被后端定期读取，保存 `.env` 后通常无需重启即可生效。
+
+如果用户模型中填写的是公开 Base URL，但希望服务端实际请求走 Docker 内网地址，可以配置 `FLYREQ_BASE_URL_REWRITE_MAP`。例如用户仍填写 `https://flyreq.com`，后端实际请求同一 1Panel 网络里的 new-api 容器：
+
+```env
+FLYREQ_BASE_URL_REWRITE_MAP={"https://flyreq.com":"http://new-api:3000"}
+```
+
+支持多个映射：
+
+```env
+FLYREQ_BASE_URL_REWRITE_MAP={"https://flyreq.com":"http://new-api:3000","https://api.example.com":"http://example-new-api:3000"}
+```
+
+匹配会自动忽略末尾 `/v1` 或 `/v1beta`：用户填 `https://flyreq.com/v1` 也会命中 `https://flyreq.com`。映射只影响后端出站请求，不会改写用户保存的模型配置。
 
 ### 升级
 
@@ -495,6 +515,7 @@ docker push ghcr.io/doudou770/flyreq-image-studio:latest
 | `FLYREQ_MAX_PENDING_TASKS_PER_API_KEY` | 否 | `10` | 单 API Key 最多同时拥有多少个待处理任务 |
 | `FLYREQ_RATE_LIMIT_RETRY_AFTER_SECONDS` | 否 | `30` | 队列满/限流时响应头 `Retry-After` 秒数 |
 | `FLYREQ_IMAGE_DIR` | 否 | `backend/flyreq-images/` | 任务产物落盘目录 |
+| `FLYREQ_BASE_URL_REWRITE_MAP` | 否 | 空 | Base URL 出站改写表；例如 `{"https://flyreq.com":"http://new-api:3000"}` |
 | `FLYREQ_IMAGE_MODEL_KEY_GUIDE_TITLE` | 否 | `还没有图片模型 API Key？` | 设置页图片模型 Key 指引标题 |
 | `FLYREQ_IMAGE_MODEL_KEY_GUIDE_DESCRIPTION` | 否 | FlyReq 默认说明 | 设置页图片模型 Key 指引描述 |
 | `FLYREQ_IMAGE_MODEL_KEY_GUIDE_CTA_LABEL` | 否 | `前往 flyreq.com` | 设置页图片模型 Key 指引按钮文字 |
@@ -502,7 +523,7 @@ docker push ghcr.io/doudou770/flyreq-image-studio:latest
 | `PROMPT_GALLERY_MODE` | 否 | `2` | `1` 常驻 / `2` 私密密码（点七下标题） / `3` 关闭 |
 | `PROMPT_GALLERY_PASSWORD` | 否 | 空 | 提示词广场私密模式密码；为空时私密模式可直接开启 |
 
-> `.env` 修改后大部分运行时配置**实时生效**（任务并发、限流、队列容量、接单开关、广场模式、图片模型 Key 指引），无需重启；`PORT`、`HOSTNAME`、`NODE_ENV` 这类启动级配置仍需重启。
+> `.env` 修改后大部分运行时配置**实时生效**（任务并发、限流、队列容量、接单开关、Base URL 出站改写、广场模式、图片模型 Key 指引），无需重启；`PORT`、`HOSTNAME`、`NODE_ENV` 这类启动级配置仍需重启。
 
 ---
 

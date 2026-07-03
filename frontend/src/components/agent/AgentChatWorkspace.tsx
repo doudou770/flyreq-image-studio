@@ -48,6 +48,7 @@ import {
   getAspectRatioOptions,
   getCustomSizeMaxSide,
   getGptImageAdvancedParamsForModel,
+  getOutputSizeLabel,
   getSizeOptions,
   getSupportsTemperature,
   getValidOutputSizes,
@@ -188,6 +189,15 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
 
   const supportsTemperature = getSupportsTemperature(userModel);
   const supportsAdvancedParams = supportsGptImageAdvancedParams(userModel);
+  const userSizeOptions = getSizeOptions(userModel);
+  const userAspectRatioOptions = getAspectRatioOptions(userModel, userOutputSize);
+  const userCurrentResolution = userCustomSize
+    || userAspectRatioOptions.find(option => option.value === userAspectRatio)?.resolution
+    || '';
+  const getUserResolutionForSize = (size: OutputSize) => {
+    if (size === 'auto') return '自动';
+    return getAspectRatioOptions(userModel, size).find(option => option.value === userAspectRatio)?.resolution || '';
+  };
 
   // 参数变化时自动持久化
   useEffect(() => {
@@ -981,20 +991,22 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
                 </PopoverContent>
               </Popover>
 
-              {/* 清晰度 */}
+              {/* 输出尺寸 */}
               <Popover open={sizePopoverOpen} onOpenChange={setSizePopoverOpen}>
                 <PopoverTrigger
                   className={cn(buttonVariants({ variant: 'outline', size: 'xs' }), 'gap-1')}
+                  title={`输出尺寸${userCurrentResolution ? `：${userCurrentResolution}` : ''}`}
                 >
-                  <Sparkles className="h-3 w-3" />
-                  <span className="text-[11px]">{userCustomSize || (userOutputSize === '512' ? '0.5K' : userOutputSize)}</span>
+                  <Maximize className="h-3 w-3" />
+                  <span className="text-[11px]">{userCustomSize || getOutputSizeLabel(userOutputSize)}</span>
                 </PopoverTrigger>
-                <PopoverContent className="w-36 p-1" align="start">
-                  {getSizeOptions(userModel).map(option => (
+                <PopoverContent className="w-56 p-1" align="start">
+                  {userSizeOptions.map(option => (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => {
+                        if (option.disabled) return;
                         const nextSize = option.value;
                         const ratios = getAspectRatioOptions(userModel, nextSize).map(a => a.value);
                         const nextRatio = ratios.includes(userAspectRatio) ? userAspectRatio : (ratios[0] || '1:1');
@@ -1003,13 +1015,18 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
                         setUserCustomSize(undefined);
                         setSizePopoverOpen(false);
                       }}
+                      disabled={option.disabled}
+                      title={option.disabledReason}
                       className={cn(
-                        'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted',
+                        'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent',
                         option.value === userOutputSize && !userCustomSize && 'bg-muted font-medium'
                       )}
                     >
-                      {option.label}
-                      {option.value === userOutputSize && !userCustomSize && <Check className="h-3.5 w-3.5" />}
+                      <span>{option.label}</span>
+                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {getUserResolutionForSize(option.value)}
+                        {option.value === userOutputSize && !userCustomSize && <Check className="h-3.5 w-3.5 text-foreground" />}
+                      </span>
                     </button>
                   ))}
                   {supportsCustomSize(userModel) && (
@@ -1038,7 +1055,7 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
                 </PopoverTrigger>
                 <PopoverContent className="w-52 p-1" align="start">
                   <div className="grid grid-cols-2 gap-1">
-                    {getAspectRatioOptions(userModel, userOutputSize)
+                    {userAspectRatioOptions
                       .filter(o => o.value !== 'auto')
                       .map(option => (
                       <button
@@ -1046,11 +1063,12 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
                         type="button"
                         onClick={() => { setUserAspectRatio(option.value as AspectRatio); setAspectPopoverOpen(false); }}
                         className={cn(
-                          'flex items-center justify-center rounded-md px-2 py-1.5 text-sm hover:bg-muted',
+                          'flex flex-col items-start rounded-md px-2 py-1.5 text-sm hover:bg-muted',
                           option.value === userAspectRatio && 'bg-muted font-medium'
                         )}
                       >
-                        {option.value}
+                        <span>{option.value}</span>
+                        {option.resolution && <span className="text-[10px] text-muted-foreground">{option.resolution}</span>}
                       </button>
                     ))}
                   </div>

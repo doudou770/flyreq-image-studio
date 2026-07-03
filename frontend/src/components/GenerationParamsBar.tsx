@@ -62,13 +62,20 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className }:
   const supportsAdvancedParams = supportsGptImageAdvancedParams(model);
   const autoLayoutAvailable = supportsAutoLayout(model);
   const autoLayoutLocked = autoLayoutAvailable && value.outputSize === 'auto';
-  const showSizeControl = !isGptImageModel(model);
+  const showSizeControl = sizeOptions.length > 1 || autoLayoutAvailable;
   const customSizeAvailable = supportsCustomSize(model) && !autoLayoutLocked;
   const customSizeMaxSide = getCustomSizeMaxSide(model) || 2048;
+  const currentResolution = value.customSize
+    || aspectRatioOptions.find(option => option.value === value.aspectRatio)?.resolution
+    || (autoLayoutLocked ? '自动' : '');
   const displaySizeLabel = value.customSize || getOutputSizeLabel(value.outputSize);
+  const getResolutionForSize = (outputSize: OutputSize) => {
+    if (outputSize === 'auto') return '自动';
+    return getAspectRatioOptions(model, outputSize).find(option => option.value === value.aspectRatio)?.resolution || '';
+  };
   const handleModelChange = (newModel: ModelId) => {
     const nextGpt = getGptImageAdvancedParamsForModel(newModel, value.gptImageAdvancedParams);
-    const nextSizeOptions = getSizeOptions(newModel);
+    const nextSizeOptions = getSizeOptions(newModel).filter(option => !option.disabled);
     const nextOutputSize: OutputSize = value.outputSize === 'auto' && supportsAutoLayout(newModel) ? 'auto' : (nextSizeOptions.find(s => s.value === value.outputSize)?.value || nextSizeOptions[0].value);
     const nextCustomSize = supportsCustomSize(newModel) ? normalizeCustomImageSize(value.customSize, getCustomSizeMaxSide(newModel)) : undefined;
     const aspectOptions = getAspectRatioOptions(newModel, nextOutputSize);
@@ -77,6 +84,7 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className }:
   };
 
   const handleSizeChange = (newSize: OutputSize) => {
+    if (sizeOptions.find(option => option.value === newSize)?.disabled) return;
     const aspectOptions = getAspectRatioOptions(model, newSize);
     const nextAspectRatio: AspectRatio = aspectOptions.find(a => a.value === value.aspectRatio) ? value.aspectRatio : (aspectOptions[0]?.value || '1:1');
     onChange({ outputSize: newSize, customSize: undefined, aspectRatio: nextAspectRatio });
@@ -143,18 +151,24 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className }:
 
       {showSizeControl && (
         <Popover open={sizePopoverOpen && !autoLayoutLocked} onOpenChange={(open) => setSizePopoverOpen(autoLayoutLocked ? false : open)}>
-          <PopoverTrigger className={cn(buttonVariants({ variant: 'outline', size }), 'gap-1')} title={autoLayoutLocked ? '自动模式已锁定分辨率' : '输出分辨率'} disabled={autoLayoutLocked}>
+          <PopoverTrigger className={cn(buttonVariants({ variant: 'outline', size }), 'gap-1')} title={autoLayoutLocked ? '自动模式已锁定分辨率' : `输出尺寸${currentResolution ? `：${currentResolution}` : ''}`} disabled={autoLayoutLocked}>
             <Maximize className="h-3 w-3" />
             <span className="text-[11px]">{displaySizeLabel}</span>
           </PopoverTrigger>
-          <PopoverContent className="w-48 p-1" align="start">
+          <PopoverContent className="w-56 p-1" align="start">
             {sizeOptions.map((option) => (
               <button
                 key={option.value}
                 onClick={() => handleSizeChange(option.value)}
-                className={cn('w-full text-left px-2.5 py-1.5 rounded-md text-sm hover:bg-muted', value.outputSize === option.value && !value.customSize && 'bg-muted font-medium')}
+                disabled={option.disabled}
+                title={option.disabledReason}
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent',
+                  value.outputSize === option.value && !value.customSize && 'bg-muted font-medium'
+                )}
               >
-                {option.label}
+                <span>{option.label}</span>
+                {getResolutionForSize(option.value) && <span className="text-xs text-muted-foreground">{getResolutionForSize(option.value)}</span>}
               </button>
             ))}
             {customSizeAvailable && (
@@ -182,9 +196,10 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className }:
               <button
                 key={option.value}
                 onClick={() => handleAspectRatioChange(option.value)}
-                className={cn('text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted', value.aspectRatio === option.value && 'bg-muted font-medium')}
+                className={cn('flex flex-col items-start px-2 py-1.5 rounded-md text-xs hover:bg-muted', value.aspectRatio === option.value && 'bg-muted font-medium')}
               >
-                {option.value}
+                <span>{option.value}</span>
+                {option.resolution && <span className="text-[10px] text-muted-foreground">{option.resolution}</span>}
               </button>
             ))}
           </div>

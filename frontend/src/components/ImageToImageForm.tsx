@@ -204,7 +204,7 @@ export function ImageToImageForm({
   const handleModelChange = (newModel: ModelId) => {
     setModel(newModel);
     setGptImageAdvancedParams(prev => getGptImageAdvancedParamsForModel(newModel, prev));
-    const sizeOptions = getSizeOptions(newModel);
+    const sizeOptions = getSizeOptions(newModel).filter(option => !option.disabled);
     const nextOutputSize = outputSize === 'auto' && supportsAutoLayout(newModel)
       ? 'auto'
       : (sizeOptions.find(s => s.value === outputSize)?.value || sizeOptions[0].value);
@@ -223,6 +223,7 @@ export function ImageToImageForm({
   };
 
   const handleSizeChange = (newSize: OutputSize) => {
+    if (sizeOptions.find(option => option.value === newSize)?.disabled) return;
     setOutputSize(newSize);
     setCustomSize(undefined);
     const aspectOptions = getAspectRatioOptions(model, newSize);
@@ -264,10 +265,17 @@ export function ImageToImageForm({
   const supportsAdvancedParams = supportsGptImageAdvancedParams(model);
   const autoLayoutAvailable = supportsAutoLayout(model);
   const autoLayoutLocked = autoLayoutAvailable && outputSize === 'auto';
-  const showSizeControl = !isGptImageModel(model);
+  const showSizeControl = sizeOptions.length > 1 || autoLayoutAvailable;
   const customSizeAvailable = supportsCustomSize(model) && !autoLayoutLocked;
   const customSizeMaxSide = getCustomSizeMaxSide(model) || 2048;
+  const currentResolution = customSize
+    || aspectRatioOptions.find(option => option.value === aspectRatio)?.resolution
+    || (autoLayoutLocked ? '自动' : '');
   const displaySizeLabel = customSize || getOutputSizeLabel(outputSize);
+  const getResolutionForSize = (size: OutputSize) => {
+    if (size === 'auto') return '自动';
+    return getAspectRatioOptions(model, size).find(option => option.value === aspectRatio)?.resolution || '';
+  };
 
   // 挂载后恢复缓存设置（仅客户端执行）
   useEffect(() => {
@@ -782,23 +790,26 @@ export function ImageToImageForm({
             <Popover open={sizePopoverOpen && !autoLayoutLocked} onOpenChange={(open) => setSizePopoverOpen(autoLayoutLocked ? false : open)}>
               <PopoverTrigger
                 className={cn(buttonVariants({ variant: 'outline', size: 'xs' }), 'gap-1')}
-                title={autoLayoutLocked ? "自动模式已锁定分辨率" : "输出分辨率"}
+                title={autoLayoutLocked ? "自动模式已锁定分辨率" : `输出尺寸${currentResolution ? `：${currentResolution}` : ''}`}
                 disabled={autoLayoutLocked}
               >
                 <Maximize className="h-3 w-3" />
                 <span className="text-[11px]">{displaySizeLabel}</span>
               </PopoverTrigger>
-              <PopoverContent className="w-48 p-1" align="start">
+              <PopoverContent className="w-56 p-1" align="start">
                 {sizeOptions.map((option) => (
                   <button
                     key={option.value}
                     onClick={() => handleSizeChange(option.value)}
+                    disabled={option.disabled}
+                    title={option.disabledReason}
                     className={cn(
-                      'w-full text-left px-2.5 py-1.5 rounded-md text-sm hover:bg-muted',
+                      'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent',
                       outputSize === option.value && !customSize && 'bg-muted font-medium'
                     )}
                   >
-                    {option.label}
+                    <span>{option.label}</span>
+                    {getResolutionForSize(option.value) && <span className="text-xs text-muted-foreground">{getResolutionForSize(option.value)}</span>}
                   </button>
                 ))}
                 {customSizeAvailable && (
@@ -834,11 +845,12 @@ export function ImageToImageForm({
                     key={option.value}
                     onClick={() => handleAspectRatioChange(option.value)}
                     className={cn(
-                      'text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted',
+                      'flex flex-col items-start px-2 py-1.5 rounded-md text-xs hover:bg-muted',
                       aspectRatio === option.value && 'bg-muted font-medium'
                     )}
                   >
-                    {option.value}
+                    <span>{option.value}</span>
+                    {option.resolution && <span className="text-[10px] text-muted-foreground">{option.resolution}</span>}
                   </button>
                 ))}
               </div>

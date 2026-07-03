@@ -51,7 +51,7 @@ export interface SubmitActions {
   addJob: (job: StoredJob) => void;
   replaceJob: (jobId: string, updater: (job: StoredJob) => StoredJob) => void;
   completeJob: (jobId: string, job: StoredJob) => Promise<void>;
-  failJob: (jobId: string, error: string, options?: { terminal?: boolean }) => Promise<void>;
+  failJob: (jobId: string, error: string, options?: { terminal?: boolean; completedAt?: string }) => Promise<void>;
   /** 可选：返回最新 job 快照，供异步流程避免使用过期闭包。 */
   getJob?: (jobId: string) => StoredJob | undefined;
 }
@@ -146,10 +146,14 @@ function createBaseJob(
 
 export function buildCompletedJobFromTask(job: StoredJob, task: FlyreqTaskResponse): StoredJob {
   const images = task.result?.images || [];
+  const createdAt = task.createdAt || job.created_at;
+  const completedAt = task.completedAt || new Date().toISOString();
   if (task.status === 'completed' && images.length > 0) {
     return {
       ...job,
       status: 'completed',
+      created_at: createdAt,
+      completed_at: completedAt,
       images,
       imageData: images[0],
       warning: task.warning,
@@ -160,6 +164,8 @@ export function buildCompletedJobFromTask(job: StoredJob, task: FlyreqTaskRespon
   return {
     ...job,
     status: 'failed',
+    created_at: createdAt,
+    completed_at: completedAt,
     error: task.error || (task.status === 'expired' ? '该任务已超出取回时间' : '后端任务失败'),
   };
 }
@@ -170,6 +176,8 @@ export async function finalizeCompletedServerTask(
   actions: SubmitActions
 ): Promise<void> {
   const images = task.result?.images || [];
+  const createdAt = task.createdAt || job.created_at;
+  const completedAt = task.completedAt || new Date().toISOString();
 
   if (task.status === 'completed' && images.length > 0) {
     const hasUrlImages = images.some(img => img.startsWith('URL:'));
@@ -178,6 +186,8 @@ export async function finalizeCompletedServerTask(
       const finalJob: StoredJob = {
         ...job,
         status: 'completed',
+        created_at: createdAt,
+        completed_at: completedAt,
         images,
         imageData: images[0],
         warning: task.warning,
@@ -195,6 +205,8 @@ export async function finalizeCompletedServerTask(
     await actions.completeJob(job.id, {
       ...job,
       status: 'completed',
+      created_at: createdAt,
+      completed_at: completedAt,
       images,
       imageData: images[0],
       warning: task.warning,
@@ -215,6 +227,8 @@ export async function finalizeCompletedServerTask(
     const finalJob: StoredJob = {
       ...job,
       status: 'completed',
+      created_at: createdAt,
+      completed_at: completedAt,
       images: finalImages,
       imageData: finalImages[0],
       warning: allCached
@@ -237,9 +251,11 @@ export async function finalizeCompletedServerTask(
   const finalJob: StoredJob = {
     ...job,
     status: 'failed',
+    created_at: createdAt,
+    completed_at: completedAt,
     error: task.error || (task.status === 'expired' ? '该任务已超出取回时间' : '后端任务失败'),
   };
-  await actions.failJob(job.id, finalJob.error || '任务失败');
+  await actions.failJob(job.id, finalJob.error || '任务失败', { completedAt });
 }
 
 export interface RetryDownloadResult {

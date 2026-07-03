@@ -82,6 +82,8 @@ function makeCompletedTask(images: string[]): FlyreqTaskResponse {
   return {
     id: 'task-1',
     status: 'completed',
+    createdAt: '2026-06-07T00:00:01.000Z',
+    completedAt: '2026-06-07T00:00:19.000Z',
     result: { images },
   };
 }
@@ -186,6 +188,8 @@ describe('finalizeCompletedServerTask', () => {
 
     expect(actions.completeJob).toHaveBeenCalledTimes(2);
     expect(getJob().images).toEqual(['blob:cached-0']);
+    expect(getJob().created_at).toBe('2026-06-07T00:00:01.000Z');
+    expect(getJob().completed_at).toBe('2026-06-07T00:00:19.000Z');
     expect(getJob().serverTaskAcked).toBe(true);
     expect(getJob().imageDownloadProgress).toBeUndefined();
     expect(mockedAckFlyreqTask).toHaveBeenCalledWith('task-1');

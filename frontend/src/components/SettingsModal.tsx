@@ -57,6 +57,7 @@ import { checkModelsAvailability, type ModelStatus } from '@/lib/flyreq-task-cli
 import { hasConfiguredImageModel, isPromptOptimizeEnabled, setPromptOptimizeEnabled } from '@/lib/settings-storage';
 import { BA_RANDOM_URL, BING_WALLPAPER_URL, IMAGE_MODEL_KEY_GUIDE } from '@/lib/constants';
 import { PROMPT_DATA_SOURCES, getPromptSourceLabel } from '@/lib/prompt-gallery-data';
+import { getOutputSizeLabel } from '@/lib/model-capabilities';
 
 type ImageModelKeyGuide = typeof IMAGE_MODEL_KEY_GUIDE;
 
@@ -488,7 +489,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   const completeImageOptions = imageModels.filter(isCompleteImageModel).map((model) => ({ value: model.id, label: model.name }));
   const completeTextOptions = textModels.filter(isCompleteTextModel).map((model) => ({ value: model.id, label: model.name }));
   const needsImageModelKeyGuide = !imageModels.some(isCompleteImageModel);
-  const selectedImageOutputSizes = selectedImageModel
+  const selectedImageOutputSizes: ImageModelConfig['maxOutputSize'][] = selectedImageModel
     ? getImageModelOutputSizes({
         ...selectedImageModel,
         maxOutputSize: BUILTIN_IMAGE_PRESETS[selectedImageModel.builtinPreset].maxOutputSize,
@@ -656,7 +657,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                       <Select
                         value={selectedImageModel.maxOutputSize}
                         onValueChange={(value) => handleUpdateImageModel(selectedImageModel.id, { maxOutputSize: value as ImageModelConfig['maxOutputSize'] })}
-                        options={selectedImageOutputSizes.map((size) => ({ value: size, label: size === '512' ? '0.5K' : size }))}
+                        options={selectedImageOutputSizes.map((size) => ({ value: size, label: getOutputSizeLabel(size) }))}
                       />
                     </div>
                     {selectedImageModel.protocol === 'openai' && (

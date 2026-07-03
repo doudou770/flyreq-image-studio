@@ -6,6 +6,7 @@ import { Loader2, X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Mode, StoredJob } from '@/lib/job-store';
 import { cn } from '@/lib/utils';
+import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
 import { getModelDisplayName } from '@/lib/model-capabilities';
 import { CompletedJobCard } from '@/components/workspace/results/CompletedJobCard';
 import { useI18n } from '@/components/LanguageProvider';
@@ -57,7 +58,8 @@ const WaitingJobCard = memo(function WaitingJobCard({
     : job.mode === 'text-to-image'
       ? (parallelCount > 1 ? t('history.waitGeneratingMany', { count: parallelCount }) : t('history.waitGenerating'))
       : (parallelCount > 1 ? t('history.waitConvertingMany', { count: parallelCount }) : t('history.waitConverting'));
-  const elapsedSeconds = Math.max(0, Math.floor((now - Date.parse(job.created_at)) / 1000));
+  const elapsedSeconds = getJobDurationSeconds(job, now) ?? 0;
+  const requestedAtLabel = formatJobDateTime(job.created_at);
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -73,6 +75,9 @@ const WaitingJobCard = memo(function WaitingJobCard({
           <p className="mt-0.5 text-xs text-muted-foreground">
             {t('history.elapsed', { seconds: elapsedSeconds, model: getModelDisplayName(job.model) })}
           </p>
+          {requestedAtLabel && (
+            <p className="mt-0.5 text-xs text-muted-foreground">请求 {requestedAtLabel}</p>
+          )}
         </div>
         {job.serverTaskId && (
           <Button
@@ -318,6 +323,8 @@ export function HistoryJobList({
       // terminal=true → 后端明确判定不可恢复，不显示"查看进度"
       // 其他情况（默认 / 网络错误 / 未分类）都允许"查看进度"，让用户兜底
       const allowCheckStatus = !job.terminal && !!job.serverTaskId;
+      const requestedAtLabel = formatJobDateTime(job.created_at);
+      const durationLabel = formatDuration(getJobDurationSeconds(job));
       return (
         <div className="rounded-xl border border-destructive/20 bg-card p-4">
           <div className="flex items-start justify-between gap-3">
@@ -325,6 +332,13 @@ export function HistoryJobList({
               <p className="truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
               <p className="max-h-20 overflow-y-auto text-sm text-destructive">{job.error || t('history.failed')}</p>
               <p className="text-xs text-muted-foreground">{getModelDisplayName(job.model)}</p>
+              {(requestedAtLabel || durationLabel) && (
+                <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                  {requestedAtLabel && <span>请求 {requestedAtLabel}</span>}
+                  {requestedAtLabel && durationLabel && <span>·</span>}
+                  {durationLabel && <span>耗时 {durationLabel}</span>}
+                </p>
+              )}
             </div>
             <div className="flex gap-1">
               {allowCheckStatus && (

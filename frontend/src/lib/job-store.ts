@@ -36,6 +36,7 @@ export interface StoredJob {
   gptImageBackground?: GptImageBackground;
   gptImageOutputFormat?: GptImageOutputFormat;
   created_at: string;
+  completed_at?: string;
   error?: string;
   networkError?: boolean;
   /** true 表示后端明确判定该失败任务不可恢复（API 错误 / 服务器重启 / 已过期 / 已删除）。

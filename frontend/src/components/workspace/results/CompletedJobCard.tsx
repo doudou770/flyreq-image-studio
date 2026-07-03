@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useImageLazyLoad } from '@/hooks/useImageLazyLoad';
 import { getImageSrc, type StoredJob } from '@/lib/job-store';
 import { resolveStoredImageRef, revokeBlobUrls } from '@/lib/image-downloader';
+import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
 import { getModelDisplayName, getOutputSizeLabel } from '@/lib/model-capabilities';
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
@@ -161,6 +162,8 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
   const isMultiple = sourceImages.length > 1;
   const supportsTemperature = !isGptImageModel(job.model);
   const outputSizeLabel = job.custom_size || getOutputSizeLabel(job.output_size);
+  const requestedAtLabel = formatJobDateTime(job.created_at);
+  const durationLabel = formatDuration(getJobDurationSeconds(job));
   const lazyLoad = useImageLazyLoad<HTMLDivElement>({
     rootMargin: '300px',
     enabled: true,
@@ -347,6 +350,13 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
               {supportsTemperature && <><span>·</span><Thermometer className="w-3 h-3" /><span>{job.temperature?.toFixed(2) ?? 1}</span></>}
               {isMultiple && <><span>·</span><span className="font-medium text-primary">x{sourceImages.length}{job.parallelCount && job.parallelCount > sourceImages.length ? `/${job.parallelCount}` : ''}</span></>}
             </p>
+            {(requestedAtLabel || durationLabel) && (
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                {requestedAtLabel && <span>请求 {requestedAtLabel}</span>}
+                {requestedAtLabel && durationLabel && <span>·</span>}
+                {durationLabel && <span>耗时 {durationLabel}</span>}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-shrink-0 items-center gap-1">

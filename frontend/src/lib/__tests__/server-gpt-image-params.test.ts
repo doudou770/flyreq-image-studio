@@ -40,7 +40,7 @@ describe('backend GPT Image advanced params forwarding', () => {
 
   it('resolves and forwards size for OpenAI image requests', () => {
     expect(serverSource).toContain('function resolveGptImageRequestSize(request)');
-    expect(serverSource).toContain('const customSize = normalizeCustomImageSize(request.customSize, 4096)');
+    expect(serverSource).toContain('const customSize = normalizeCustomImageSize(request.customSize, 3840)');
     expect(serverSource).toContain('return getSupportedGptImageSize(request.model, request.outputSize, request.aspectRatio)');
     expect(serverSource).toContain('return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {');
   });

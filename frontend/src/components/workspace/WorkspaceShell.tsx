@@ -143,13 +143,13 @@ export function WorkspaceShell() {
         const { terminal } = classifyTaskFailure(task);
         const message = task.error || task.warning
           || (task.status === 'expired' ? (locale === 'zh' ? '该任务已超出取回时间' : 'This task has expired') : t('history.failed'));
-        void submitActions.failJob(job.id, message, { terminal });
+        void submitActions.failJob(job.id, message, { terminal, completedAt: task.completedAt });
         showToast(locale === 'zh' ? `任务失败：${message}` : `Task failed: ${message}`, 'error');
       } else if (task.status === 'processing') {
-        submitActions.replaceJob(job.id, cur => ({ ...cur, status: 'processing' }));
+        submitActions.replaceJob(job.id, cur => ({ ...cur, status: 'processing', created_at: task.createdAt || cur.created_at }));
         showToast(locale === 'zh' ? '任务正在生成中，请稍候…' : 'The task is still generating. Please wait...', 'info');
       } else if (task.status === 'queued' || task.status === '排队中') {
-        submitActions.replaceJob(job.id, cur => ({ ...cur, status: '排队中' }));
+        submitActions.replaceJob(job.id, cur => ({ ...cur, status: '排队中', created_at: task.createdAt || cur.created_at }));
         showToast(locale === 'zh' ? '任务排队中，请耐心等待…' : 'The task is queued. Please wait...', 'info');
       }
     } catch {

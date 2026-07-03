@@ -102,6 +102,56 @@ function resolveFlyreqApiBaseUrl() {
   return normalizeBaseUrl(getRuntimeEnv().FLYREQ_API_BASE_URL) || 'https://api.openai.com';
 }
 
+function parseBaseUrlRewriteMap(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map(item => Array.isArray(item)
+          ? { from: item[0], to: item[1] }
+          : { from: item?.from ?? item?.source, to: item?.to ?? item?.target })
+        .filter(item => item.from && item.to);
+    }
+    if (parsed && typeof parsed === 'object') {
+      return Object.entries(parsed).map(([from, to]) => ({ from, to }));
+    }
+  } catch {
+    // Fall through to the compact text format.
+  }
+
+  return raw
+    .split(/[,\n;]/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => {
+      const separator = part.includes('=>') ? '=>' : '=';
+      const index = part.indexOf(separator);
+      if (index <= 0) return null;
+      return {
+        from: part.slice(0, index).trim(),
+        to: part.slice(index + separator.length).trim(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function resolveOutboundBaseUrl(protocol, baseUrl, env = getRuntimeEnv()) {
+  const normalizedBaseUrl = normalizeProtocolBaseUrl(protocol, baseUrl);
+  const rewrites = parseBaseUrlRewriteMap(env.FLYREQ_BASE_URL_REWRITE_MAP);
+
+  for (const rewrite of rewrites) {
+    const from = normalizeProtocolBaseUrl(protocol, rewrite.from);
+    if (!from || from.toLowerCase() !== normalizedBaseUrl.toLowerCase()) continue;
+    const to = normalizeProtocolBaseUrl(protocol, rewrite.to);
+    if (to) return to;
+  }
+
+  return normalizedBaseUrl;
+}
+
 function resolveImageModelKeyGuide(env = getRuntimeEnv()) {
   const title = String(env.FLYREQ_IMAGE_MODEL_KEY_GUIDE_TITLE || '').trim();
   const description = String(env.FLYREQ_IMAGE_MODEL_KEY_GUIDE_DESCRIPTION || '').trim();
@@ -729,6 +779,10 @@ function roundToMultiple(value, multiple) {
   return Math.max(multiple, Math.round(value / multiple) * multiple);
 }
 
+function floorToMultiple(value, multiple) {
+  return Math.max(multiple, Math.floor(value / multiple) * multiple);
+}
+
 function parseImageSize(size) {
   const match = String(size || '').match(/^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/);
   if (!match) return undefined;
@@ -765,30 +819,41 @@ function getGptImageSize(outputSize, aspectRatio) {
   const ratioHeight = Number(match[2]);
   if (!ratioWidth || !ratioHeight) return undefined;
 
-  if (ratioWidth === ratioHeight) {
-    const side = outputSize === '1K' ? 1024 : outputSize === '2K' ? 2048 : 3840;
-    return `${side}x${side}`;
-  }
-
+  let width;
+  let height;
   if (outputSize === '1K') {
     const shortSide = 1024;
-    const width = ratioWidth > ratioHeight
+    width = ratioWidth > ratioHeight
       ? roundToMultiple(shortSide * ratioWidth / ratioHeight, 16)
       : shortSide;
-    const height = ratioWidth > ratioHeight
+    height = ratioWidth > ratioHeight
       ? shortSide
       : roundToMultiple(shortSide * ratioHeight / ratioWidth, 16);
-    return `${width}x${height}`;
+  } else {
+    if (outputSize !== '2K' && outputSize !== '4K') return undefined;
+    const longSide = outputSize === '2K' ? 2048 : 3840;
+    width = ratioWidth > ratioHeight
+      ? longSide
+      : roundToMultiple(longSide * ratioWidth / ratioHeight, 16);
+    height = ratioWidth > ratioHeight
+      ? roundToMultiple(longSide * ratioHeight / ratioWidth, 16)
+      : longSide;
   }
 
-  if (outputSize !== '2K' && outputSize !== '4K') return undefined;
-  const longSide = outputSize === '2K' ? 2048 : 3840;
-  const width = ratioWidth > ratioHeight
-    ? longSide
-    : roundToMultiple(longSide * ratioWidth / ratioHeight, 16);
-  const height = ratioWidth > ratioHeight
-    ? roundToMultiple(longSide * ratioHeight / ratioWidth, 16)
-    : longSide;
+  if (!isImageSizeWithinLimits(width, height, 3840)) {
+    const maxLongSideByPixels = ratioWidth >= ratioHeight
+      ? Math.sqrt(CUSTOM_IMAGE_SIZE_LIMITS.maxPixels * ratioWidth / ratioHeight)
+      : Math.sqrt(CUSTOM_IMAGE_SIZE_LIMITS.maxPixels * ratioHeight / ratioWidth);
+    const longSide = floorToMultiple(Math.min(3840, maxLongSideByPixels), 16);
+    width = ratioWidth >= ratioHeight
+      ? longSide
+      : floorToMultiple(longSide * ratioWidth / ratioHeight, 16);
+    height = ratioWidth >= ratioHeight
+      ? floorToMultiple(longSide * ratioHeight / ratioWidth, 16)
+      : longSide;
+  }
+
+  if (!isImageSizeWithinLimits(width, height, 3840)) return undefined;
   return `${width}x${height}`;
 }
 
@@ -809,7 +874,7 @@ function getSupportedGptImageSize(model, outputSize, aspectRatio) {
 }
 
 function resolveGptImageRequestSize(request) {
-  const customSize = normalizeCustomImageSize(request.customSize, 4096);
+  const customSize = normalizeCustomImageSize(request.customSize, 3840);
   if (customSize) return customSize;
   return getSupportedGptImageSize(request.model, request.outputSize, request.aspectRatio);
 }
@@ -1024,6 +1089,15 @@ function extractImagePayloadFromEventStream(text) {
     }
   }
 
+  for (const payload of [...payloads].reverse()) {
+    if (!isPartialImageEvent(payload)) continue;
+    try {
+      return extractImagePayload(payload);
+    } catch {
+      // Keep scanning earlier partial events.
+    }
+  }
+
   if (errorMessage) throw new Error(errorMessage);
   throw new Error('响应中无图片数据');
 }
@@ -1121,7 +1195,9 @@ async function fetchWithTimeout(url, init) {
 
 async function generateFlyreqImage(apiKey, request) {
   // 开源版：根据前端传入的 protocol 字段路由到对应的 API 协议
-  const baseUrl = request.baseUrl || resolveFlyreqApiBaseUrl();
+  const baseUrl = request.baseUrl
+    ? resolveOutboundBaseUrl(request.protocol, request.baseUrl)
+    : resolveFlyreqApiBaseUrl();
   if (request.protocol === 'openai') {
     return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {
       baseUrl,
@@ -1641,7 +1717,7 @@ async function handleApi(req, res, pathname) {
           return true;
         }
 
-        const normalizedBaseUrl = normalizeProtocolBaseUrl(protocol, baseUrl);
+        const normalizedBaseUrl = resolveOutboundBaseUrl(protocol, baseUrl);
         let targetUrl;
         const authHeaders = { 'Content-Type': 'application/json' };
 
@@ -1723,7 +1799,7 @@ async function handleApi(req, res, pathname) {
           return true;
         }
 
-        const normalizedBaseUrl = normalizeProtocolBaseUrl(protocol, baseUrl);
+        const normalizedBaseUrl = resolveOutboundBaseUrl(protocol, baseUrl);
         const modelsUrl = `${normalizedBaseUrl}/v1/models`;
         // 模型列表查询只发送 Authorization 头。x-goog-api-key 仅用于 Gemini 生成端点，
         // 对 /v1/models (兼容 OpenAI 格式的 NewAPI 等) 会引发错误或返回空列表。

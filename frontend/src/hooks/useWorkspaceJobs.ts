@@ -110,7 +110,7 @@ export function useWorkspaceJobs() {
     await saveImage(job).catch(() => undefined);
   }, [persistJobs]);
 
-  const failJob = useCallback(async (jobId: string, error: string, options?: { terminal?: boolean }) => {
+  const failJob = useCallback(async (jobId: string, error: string, options?: { terminal?: boolean; completedAt?: string }) => {
     let failedJob: StoredJob | null = null;
     persistJobs(prev => prev.map(job => {
       if (job.id !== jobId) return job;
@@ -122,6 +122,7 @@ export function useWorkspaceJobs() {
         error,
         networkError: classification.reason === 'network',
         terminal,
+        completed_at: options?.completedAt || new Date().toISOString(),
       };
       return failedJob;
     }));

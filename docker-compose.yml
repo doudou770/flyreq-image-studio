@@ -4,12 +4,12 @@ services:
   flyreq-image-studio:
     image: ghcr.io/doudou770/flyreq-image-studio:latest
     container_name: flyreq-image-studio
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-      FLYREQ_TASK_DB: /app/backend/data/flyreq-tasks.sqlite
-      FLYREQ_IMAGE_DIR: /app/backend/data/flyreq-images
+    # env_file:
+    #   - .env
+    # environment:
+    #   NODE_ENV: production
+    #   FLYREQ_TASK_DB: /app/backend/data/flyreq-tasks.sqlite
+    #   FLYREQ_IMAGE_DIR: /app/backend/data/flyreq-images
     ports:
       - "3001:3001"
     volumes:
@@ -17,4 +17,10 @@ services:
       - ./blacklist.json:/app/backend/blacklist.json
       - ./prompts.json:/app/backend/prompts.json
       - ./.env:/app/.env:ro
+#    networks:
+#      - 1panel-network
     restart: unless-stopped
+
+#networks:
+#  1panel-network:
+#    external: true

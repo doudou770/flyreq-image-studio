@@ -76,15 +76,15 @@ export function useServerTaskPolling(
           const { terminal } = classifyTaskFailure(task);
           const message = task.error || task.warning
             || (task.status === 'expired' ? '该任务已超出取回时间' : '后端任务失败');
-          void actions.failJob(jobId, message, { terminal });
+          void actions.failJob(jobId, message, { terminal, completedAt: task.completedAt });
           return;
         }
         if (task.status === 'processing') {
-          actions.replaceJob(jobId, current => ({ ...current, status: 'processing' }));
+          actions.replaceJob(jobId, current => ({ ...current, status: 'processing', created_at: task.createdAt || current.created_at }));
           return;
         }
         if (task.status === 'queued' || task.status === '排队中') {
-          actions.replaceJob(jobId, current => ({ ...current, status: '排队中' }));
+          actions.replaceJob(jobId, current => ({ ...current, status: '排队中', created_at: task.createdAt || current.created_at }));
         }
       };
       const unsubscribe = flyreqTaskSocket.subscribeTask(taskId, handler);
