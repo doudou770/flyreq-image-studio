@@ -22,8 +22,8 @@ out.zip
 *.pem
 
 # database & images (backend)
-backend/nova-tasks.sqlite*
-backend/nova-images/
+backend/flyreq-tasks.sqlite*
+backend/flyreq-images/
 backend/ccode-tasks.sqlite*
 backend/ccode-images/
 # IDE/Editor configs
