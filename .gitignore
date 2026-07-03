@@ -6,6 +6,7 @@ node_modules/
 .pnp.js
 .yarn/install-state.gz
 gpt_image_playground-main
+MagicalCanvas-main/
 # testing
 coverage/
 

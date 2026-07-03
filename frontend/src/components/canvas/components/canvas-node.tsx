@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { AlertCircle, Clock, FileText, Hash, Images, RefreshCw, Save, Upload } from "lucide-react";
+import { AlertCircle, Clock, FileText, Hash, Images, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { canvasTheme } from "../lib/canvas-theme";
 import { formatBytes } from "../lib/image-utils";
 import { CanvasNodeType, type CanvasNodeData } from "../types";
 import { Spinner } from "./canvas-ui";
+import { TextAnnotationNodeBody } from "./canvas-node-text-annotation";
 
 export type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
@@ -43,6 +44,8 @@ type CanvasNodeProps = {
   onRetry?: (node: CanvasNodeData) => void;
   onRefreshProgress?: (node: CanvasNodeData) => void | Promise<void>;
   onOpenImage?: (node: CanvasNodeData) => void;
+  onAiGenerate?: (nodeId: string) => void;
+  onToggleRenderMode?: (nodeId: string) => void;
   renderPanel?: (node: CanvasNodeData, onSelect: () => void) => React.ReactNode;
 };
 
@@ -69,6 +72,8 @@ export const CanvasNode = React.memo(function CanvasNode({
   onRetry,
   onRefreshProgress,
   onOpenImage,
+  onAiGenerate,
+  onToggleRenderMode,
   renderPanel,
 }: CanvasNodeProps) {
   const theme = canvasTheme;
@@ -100,7 +105,9 @@ export const CanvasNode = React.memo(function CanvasNode({
           {data.type === CanvasNodeType.Image ? (
             <ImageNodeBody data={data} imageUrl={imageUrl} status={status} showImageInfo={showImageInfo} onUploadToNode={onUploadToNode} onImportToNode={onImportToNode} onSaveToAssets={onSaveToAssets} onRetry={onRetry} onRefreshProgress={onRefreshProgress} onOpenImage={onOpenImage} />
           ) : data.type === CanvasNodeType.Text ? (
-            <TextNodeBody data={data} onContentChange={onContentChange} onSelectNode={onSelectNode} onImportTextToNode={onImportTextToNode} onSaveTextToAssets={onSaveTextToAssets} />
+            <TextNodeBody data={data} onContentChange={onContentChange} onSelectNode={onSelectNode} onImportTextToNode={onImportTextToNode} onSaveTextToAssets={onSaveTextToAssets} onAiGenerate={onAiGenerate} onToggleRenderMode={onToggleRenderMode} />
+          ) : data.type === CanvasNodeType.TextAnnotation ? (
+            <TextAnnotationNodeBody data={data} onContentChange={onContentChange} onSelectNode={onSelectNode} />
           ) : (
             <div className="h-full w-full" data-canvas-no-zoom>
               {renderPanel?.(data, () => onSelectNode(data.id))}
@@ -214,10 +221,12 @@ function ImageNodeBody({
           <p className="max-w-[15rem] text-[11px] leading-snug">该节点可作为参考图或目标图节点</p>
           <div className="mt-1 flex flex-row items-center justify-center gap-2">
             <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted" onClick={() => onUploadToNode?.(data.id)}>
-              <Upload className="size-3.5" /> 上传图片
+              <Upload className="size-3.5" />
+              上传图片
             </button>
             <button type="button" className="inline-flex items-center justify-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted" onClick={() => onImportToNode?.(data.id)}>
-              <Images className="size-3.5" /> 从素材库导入
+              <Images className="size-3.5" />
+              从素材库导入
             </button>
           </div>
         </div>
@@ -228,9 +237,7 @@ function ImageNodeBody({
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center" data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()}>
           <AlertCircle className="size-6 text-destructive" />
           <span className="line-clamp-3 text-xs text-destructive">{data.metadata?.errorDetails || "生成失败"}</span>
-          {onRetry && (
-            <RetryButton onRetry={() => onRetry(data)} />
-          )}
+          {onRetry && <RetryButton onRetry={() => onRetry(data)} />}
         </div>
       )}
 
@@ -247,7 +254,8 @@ function ImageNodeBody({
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => onSaveToAssets(data)}
         >
-          <Save className="size-3.5" /> 存素材
+          <Save className="size-3.5" />
+          存素材
         </button>
       )}
 
@@ -285,12 +293,14 @@ function GenerationStatusOverlay({ data, status, onRefreshProgress }: { data: Ca
       <span className="text-xs font-medium text-foreground">{STATUS_LABELS[status] || "生成中"}</span>
       {startedAt && (
         <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock className="size-3" /> {formatElapsed(elapsed)}
+          <Clock className="size-3" />
+          {formatElapsed(elapsed)}
         </span>
       )}
       {taskId && (
         <span className="max-w-[10rem] truncate text-[10px] text-muted-foreground" title={taskId}>
-          <Hash className="mr-0.5 inline size-3" />{taskId.slice(0, 8)}…
+          <Hash className="mr-0.5 inline size-3" />
+          {taskId.slice(0, 8)}…
         </span>
       )}
       {taskId && onRefreshProgress && (
@@ -350,26 +360,63 @@ function TextNodeBody({
   onSelectNode,
   onImportTextToNode,
   onSaveTextToAssets,
+  onAiGenerate,
+  onToggleRenderMode,
 }: {
   data: CanvasNodeData;
   onContentChange: (nodeId: string, content: string) => void;
   onSelectNode: (nodeId: string) => void;
   onImportTextToNode?: (nodeId: string) => void;
   onSaveTextToAssets?: (node: CanvasNodeData) => void;
+  onAiGenerate?: (nodeId: string) => void;
+  onToggleRenderMode?: (nodeId: string) => void;
 }) {
   const content = data.metadata?.content || "";
+  const renderMode = data.metadata?.renderMode || "plain";
+  const isMarkdown = renderMode === "markdown";
+
   return (
     <div className="relative h-full w-full">
-      <textarea
-        data-canvas-no-zoom
-        value={content}
-        onChange={(event) => onContentChange(data.id, event.target.value)}
-        placeholder="输入文本…"
-        className="h-full w-full cursor-text resize-none bg-transparent px-2.5 py-1.5 pb-9 text-sm outline-none placeholder:text-muted-foreground"
-        style={{ fontSize: data.metadata?.fontSize || 14 }}
-        onPointerDown={() => onSelectNode(data.id)}
-      />
-      <div className="absolute right-1.5 bottom-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100" data-canvas-no-zoom>
+      {isMarkdown ? (
+        <div className="h-full w-full overflow-auto px-2.5 py-1.5 text-sm [&>*:first-child]:mt-0">
+          <SimpleMarkdown content={content} />
+        </div>
+      ) : (
+        <textarea
+          data-canvas-no-zoom
+          value={content}
+          onChange={(event) => onContentChange(data.id, event.target.value)}
+          placeholder="输入文本…"
+          className="h-full w-full cursor-text resize-none bg-transparent px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+          style={{ fontSize: data.metadata?.fontSize || 14 }}
+          onPointerDown={() => onSelectNode(data.id)}
+        />
+      )}
+
+      {/* 右上角按钮栏 */}
+      <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100" data-canvas-no-zoom>
+        {onToggleRenderMode && (
+          <button
+            type="button"
+            title={isMarkdown ? "切换为纯文本" : "切换为 Markdown 预览"}
+            className="inline-flex items-center justify-center rounded-md bg-background/90 p-1 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onToggleRenderMode(data.id)}
+          >
+            <span className="text-[10px] font-bold">{isMarkdown ? "Tx" : "Md"}</span>
+          </button>
+        )}
+        {onAiGenerate && (
+          <button
+            type="button"
+            title="AI 生成文本"
+            className="inline-flex items-center justify-center rounded-md bg-background/90 p-1 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onAiGenerate?.(data.id)}
+          >
+            <Sparkles className="size-3.5" />
+          </button>
+        )}
         <button
           type="button"
           title="导入提示词素材"
@@ -391,6 +438,32 @@ function TextNodeBody({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 轻量 Markdown 渲染组件（安装 react-markdown 后替换为真实渲染） */
+function SimpleMarkdown({ content }: { content: string }) {
+  // 预加载 react-markdown（如果已安装则使用，否则 fallback 为纯文本）
+  if (typeof content !== "string") return null;
+  const lines = content.split("\n");
+  return (
+    <div className="prose prose-sm max-w-none dark:prose-invert">
+      {lines.map((line, i) => {
+        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold">{line.slice(2)}</h1>;
+        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold">{line.slice(3)}</h2>;
+        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold">{line.slice(4)}</h3>;
+        if (line.startsWith("- ")) return <li key={i} className="ml-4 list-disc text-sm">{line.slice(2)}</li>;
+        if (line.startsWith("> ")) return <blockquote key={i} className="border-l-2 border-muted-foreground/30 pl-2 text-sm italic text-muted-foreground">{line.slice(2)}</blockquote>;
+        if (line.startsWith("```")) return <pre key={i} className="overflow-x-auto rounded bg-muted p-2 text-xs"><code>{line.slice(3)}</code></pre>;
+        if (line === "") return <br key={i} />;
+        // 支持 **bold** 和 *italic*
+        const processed = line
+          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*(.+?)\*/g, "<em>$1</em>")
+          .replace(/`(.+?)`/g, "<code class='rounded bg-muted px-1 text-xs'>$1</code>");
+        return <p key={i} className="text-sm" dangerouslySetInnerHTML={{ __html: processed }} />;
+      })}
     </div>
   );
 }
