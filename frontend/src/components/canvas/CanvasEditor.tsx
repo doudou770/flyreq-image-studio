@@ -36,9 +36,11 @@ import { compressReferenceDataUrl, readFileAsDataUrl } from "./lib/image-utils";
 import { CanvasNodeType, type CanvasConnection, type CanvasGenerationConfig, type CanvasNodeData, type CanvasNodeMetadata, type ContextMenuState, type ConnectionHandle, type Position, type SelectionBox, type ViewportTransform } from "./types";
 import type { ReferenceImage } from "./types-media";
 import { PromptOptimizeDialog } from "@/components/PromptOptimizeDialog";
+import { AiTextGenerateDialog } from "./components/canvas-ai-text-dialog";
 import { streamPromptOptimize, type StreamPromptOptimizeHandle, type OptimizeImageInput } from "@/lib/prompt-optimize-client";
 import { requireDefaultConfiguredTextModel } from "@/lib/model-endpoints";
 import { usePromptOptimizeSetting } from "@/hooks/usePromptOptimizeSetting";
+import { readSseStream } from "@/lib/sse-stream-parser";
 import { MODEL_IMAGE_LIMITS } from "@/lib/gemini-config";
 import { normalizeModel } from "@/lib/model-capabilities";
 import type { PromptWithKey } from "@/lib/prompt-gallery-data";
@@ -56,6 +58,35 @@ type CanvasEditorProps = {
 };
 
 const MAX_HISTORY = 50;
+
+function buildAiTextSystemPrompt(existingContent?: string) {
+  const sections = [
+    "你是无限画布里的 AI 文本生成助手。",
+    "",
+    "【使用场景】",
+    "- 用户会在画布文本节点里记录提示词、创意说明、方案拆解、标题、备注或文案。",
+    "- 你的输出会直接写回文本节点，因此要生成可直接使用的正文。",
+    "",
+    "【输出要求】",
+    "- 只输出生成结果，不要解释你的思考过程。",
+    "- 保持中文表达自然、清晰、可编辑。",
+    "- 用户要求 Markdown 时，可以使用标题、列表、引用或代码块；否则优先输出纯文本。",
+    "- 如果用户要求改写、扩写、总结或续写，请尊重已有内容的语气和用途。",
+  ];
+
+  if (existingContent?.trim()) {
+    sections.push(
+      "",
+      "【当前文本节点已有内容】",
+      "---",
+      existingContent,
+      "---",
+      "请把这些内容作为上下文参考，不要无故丢失其中的关键意图。",
+    );
+  }
+
+  return sections.join("\n");
+}
 
 function formatImageLabels(count: number) {
   const labels = Array.from({ length: count }, (_, index) => imageReferenceLabel(index));
@@ -169,6 +200,12 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
   const [assetPicker, setAssetPicker] = useState<{ open: boolean; nodeId: string | null }>({ open: false, nodeId: null });
   const [textAssetPicker, setTextAssetPicker] = useState<{ open: boolean; nodeId: string | null }>({ open: false, nodeId: null });
   const [promptGalleryOpen, setPromptGalleryOpen] = useState(false);
+  const [aiTextDialogOpen, setAiTextDialogOpen] = useState(false);
+  const [aiTextGenerating, setAiTextGenerating] = useState(false);
+  const [aiTextError, setAiTextError] = useState<string | null>(null);
+  const [aiTextOriginal, setAiTextOriginal] = useState("");
+  const [aiTextGenerated, setAiTextGenerated] = useState("");
+  const [aiTextTargetNodeId, setAiTextTargetNodeId] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [promptGalleryImporting, setPromptGalleryImporting] = useState(false);
   const [viewportSize, setViewportSize] = useState({ width: 1280, height: 720 });
@@ -1231,6 +1268,132 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
     [defaultConfig, patchNode, setStoreConfig],
   );
 
+  const handleToggleRenderMode = useCallback(
+    (nodeId: string) => {
+      patchNode(nodeId, (node) => ({
+        ...node,
+        metadata: { ...node.metadata, renderMode: node.metadata?.renderMode === "markdown" ? "plain" : "markdown" },
+      }));
+    },
+    [patchNode],
+  );
+
+  const handleAiTextOpen = useCallback(
+    (nodeId: string) => {
+      const node = nodes.find((item) => item.id === nodeId);
+      if (!node || node.type !== CanvasNodeType.Text) return;
+
+      setAiTextTargetNodeId(nodeId);
+      setAiTextOriginal(node.metadata?.content || "");
+      setAiTextGenerated("");
+      setAiTextGenerating(false);
+      setAiTextError(null);
+      setAiTextDialogOpen(true);
+    },
+    [nodes],
+  );
+
+  const handleAiTextPromptSubmit = useCallback(
+    async (prompt: string) => {
+      const nodeId = aiTextTargetNodeId;
+      if (!nodeId) return;
+
+      let textModel;
+      try {
+        textModel = requireDefaultConfiguredTextModel("agent");
+      } catch {
+        onRequireApiKey();
+        return;
+      }
+
+      setAiTextGenerating(true);
+      setAiTextGenerated("");
+      setAiTextError(null);
+
+      const controller = new AbortController();
+
+      try {
+        const systemPrompt = buildAiTextSystemPrompt(aiTextOriginal);
+        const body = {
+          model: textModel.modelId,
+          stream: true,
+          reasoning: { effort: "low" },
+          input: [{ role: "user", content: [{ type: "input_text" as const, text: `${systemPrompt}\n\n---\n\n用户输入：\n${prompt}` }] }],
+        };
+
+        const response = await fetch("/api/nova/proxy/text", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-nova-base-url": textModel.baseUrl,
+            "x-nova-api-key": textModel.apiKey,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`AI 文本生成失败：HTTP ${response.status}`);
+        }
+
+        let accumulated = "";
+        await readSseStream(response.body, controller.signal, (event) => {
+          if (!event.data || event.data === "[DONE]") return;
+          let payload: any;
+          try {
+            payload = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+
+          const eventType = payload.type || event.event;
+          if (eventType === "response.output_text.delta") {
+            const delta = typeof payload.delta === "string" ? payload.delta : "";
+            if (delta) {
+              accumulated += delta;
+              setAiTextGenerated(accumulated);
+            }
+          }
+          if (eventType === "response.completed") {
+            const fullText = payload.response?.output_text;
+            if (typeof fullText === "string" && fullText.length > accumulated.length) {
+              accumulated = fullText;
+              setAiTextGenerated(accumulated);
+            }
+          }
+        });
+
+        if (!controller.signal.aborted) setAiTextGenerated(accumulated);
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setAiTextError(err instanceof Error ? err.message : "AI 生成失败");
+        }
+      } finally {
+        setAiTextGenerating(false);
+      }
+    },
+    [aiTextOriginal, aiTextTargetNodeId, onRequireApiKey],
+  );
+
+  const handleAiTextAccept = useCallback(() => {
+    const nodeId = aiTextTargetNodeId;
+    if (!nodeId || !aiTextGenerated) return;
+
+    patchNode(nodeId, (node) => ({
+      ...node,
+      metadata: { ...node.metadata, content: aiTextGenerated },
+    }));
+  }, [aiTextGenerated, aiTextTargetNodeId, patchNode]);
+
+  const handleAiTextCancel = useCallback(() => {
+    setAiTextDialogOpen(false);
+    setAiTextTargetNodeId(null);
+    setAiTextOriginal("");
+    setAiTextGenerated("");
+    setAiTextGenerating(false);
+    setAiTextError(null);
+  }, []);
+
   // ---- 提示词优化：结合连接的上游图片（vision）/ 文字（context） ----
   const handleOptimizePrompt = useCallback(
     async (configNode: CanvasNodeData) => {
@@ -1441,6 +1604,8 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
                   setFullscreenImageUrl({ src: url, title: target.title, actionPayload: payload });
                 }
               }}
+              onToggleRenderMode={handleToggleRenderMode}
+              onAiGenerate={handleAiTextOpen}
               renderPanel={(configNode, onSelect) => (
                 <CanvasConfigNodePanel
                   prompt={configNode.metadata?.composerContent || ""}
@@ -1517,6 +1682,7 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
         showPromptGallery={showPromptGallery}
         onAddImage={() => addNode(CanvasNodeType.Image)}
         onAddText={() => addNode(CanvasNodeType.Text)}
+        onAddAnnotation={() => addNode(CanvasNodeType.TextAnnotation)}
         onAddConfig={() => addNode(CanvasNodeType.Config)}
         onImportPromptGallery={() => setPromptGalleryOpen(true)}
         onOpenTemplate={() => setTemplateOpen(true)}
@@ -1579,6 +1745,23 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
               setConnections((prev) => prev.filter((connection) => connection.id !== contextMenu.connectionId));
             }
           },
+          onToggleRenderMode: contextNode?.type === CanvasNodeType.Text ? () => handleToggleRenderMode(contextNode.id) : undefined,
+          onAnnotationChangeColor: contextNode?.type === CanvasNodeType.TextAnnotation
+            ? () => {
+                const colors = ["", "#fef3c7", "#dbeafe", "#fce7f3", "#d1fae5", "#ede9fe"];
+                const current = contextNode.metadata?.backgroundColor || "";
+                const next = colors[(colors.indexOf(current) + 1) % colors.length];
+                patchNode(contextNode.id, (node) => ({ ...node, metadata: { ...node.metadata, backgroundColor: next || undefined } }));
+              }
+            : undefined,
+          onAnnotationChangeFontSize: contextNode?.type === CanvasNodeType.TextAnnotation
+            ? () => {
+                const sizes = [14, 16, 18, 20, 22, 24];
+                const current = contextNode.metadata?.fontSize || 14;
+                const next = sizes[(sizes.indexOf(current) + 1) % sizes.length];
+                patchNode(contextNode.id, (node) => ({ ...node, metadata: { ...node.metadata, fontSize: next } }));
+              }
+            : undefined,
         }}
       />
 
@@ -1598,6 +1781,18 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
         error={optimizeError}
         onAccept={handleOptimizeAccept}
         onCancel={handleOptimizeCancel}
+      />
+
+      <AiTextGenerateDialog
+        open={aiTextDialogOpen}
+        onOpenChange={setAiTextDialogOpen}
+        originalContent={aiTextOriginal}
+        generatedContent={aiTextGenerated}
+        loading={aiTextGenerating}
+        error={aiTextError}
+        onPromptSubmit={handleAiTextPromptSubmit}
+        onAccept={handleAiTextAccept}
+        onCancel={handleAiTextCancel}
       />
 
       <Dialog open={Boolean(replaceConfirm)} onOpenChange={(open) => !open && setReplaceConfirm(null)}>

@@ -17,6 +17,7 @@ type CanvasToolbarProps = {
   showPromptGallery?: boolean;
   onAddImage: () => void;
   onAddText: () => void;
+  onAddAnnotation: () => void;
   onAddConfig: () => void;
   onImportPromptGallery: () => void;
   onOpenTemplate: () => void;
@@ -36,6 +37,7 @@ export function CanvasToolbar({
   showPromptGallery = true,
   onAddImage,
   onAddText,
+  onAddAnnotation,
   onAddConfig,
   onImportPromptGallery,
   onOpenTemplate,
@@ -59,6 +61,11 @@ export function CanvasToolbar({
       <CanvasTooltip label="添加文本节点">
         <Button variant="ghost" size="icon-sm" onClick={onAddText} aria-label="添加文本节点">
           <Type className="size-4" />
+        </Button>
+      </CanvasTooltip>
+      <CanvasTooltip label="添加注释节点">
+        <Button variant="ghost" size="icon-sm" onClick={onAddAnnotation} aria-label="添加注释节点">
+          <Square className="size-4" />
         </Button>
       </CanvasTooltip>
       <CanvasTooltip label="添加编排节点（提示词 + 参数 + 生成）">

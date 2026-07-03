@@ -1,13 +1,16 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { AlertCircle, Clock, FileText, Hash, Images, RefreshCw, Save, Upload } from "lucide-react";
+import { AlertCircle, Clock, FileText, Hash, Images, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/utils";
 import { canvasTheme } from "../lib/canvas-theme";
 import { formatBytes } from "../lib/image-utils";
 import { CanvasNodeType, type CanvasNodeData } from "../types";
 import { Spinner } from "./canvas-ui";
+import { TextAnnotationNodeBody } from "./canvas-node-text-annotation";
 
 export type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
@@ -43,6 +46,8 @@ type CanvasNodeProps = {
   onRetry?: (node: CanvasNodeData) => void;
   onRefreshProgress?: (node: CanvasNodeData) => void | Promise<void>;
   onOpenImage?: (node: CanvasNodeData) => void;
+  onAiGenerate?: (nodeId: string) => void;
+  onToggleRenderMode?: (nodeId: string) => void;
   renderPanel?: (node: CanvasNodeData, onSelect: () => void) => React.ReactNode;
 };
 
@@ -69,6 +74,8 @@ export const CanvasNode = React.memo(function CanvasNode({
   onRetry,
   onRefreshProgress,
   onOpenImage,
+  onAiGenerate,
+  onToggleRenderMode,
   renderPanel,
 }: CanvasNodeProps) {
   const theme = canvasTheme;
@@ -100,7 +107,9 @@ export const CanvasNode = React.memo(function CanvasNode({
           {data.type === CanvasNodeType.Image ? (
             <ImageNodeBody data={data} imageUrl={imageUrl} status={status} showImageInfo={showImageInfo} onUploadToNode={onUploadToNode} onImportToNode={onImportToNode} onSaveToAssets={onSaveToAssets} onRetry={onRetry} onRefreshProgress={onRefreshProgress} onOpenImage={onOpenImage} />
           ) : data.type === CanvasNodeType.Text ? (
-            <TextNodeBody data={data} onContentChange={onContentChange} onSelectNode={onSelectNode} onImportTextToNode={onImportTextToNode} onSaveTextToAssets={onSaveTextToAssets} />
+            <TextNodeBody data={data} onContentChange={onContentChange} onSelectNode={onSelectNode} onImportTextToNode={onImportTextToNode} onSaveTextToAssets={onSaveTextToAssets} onAiGenerate={onAiGenerate} onToggleRenderMode={onToggleRenderMode} />
+          ) : data.type === CanvasNodeType.TextAnnotation ? (
+            <TextAnnotationNodeBody data={data} onContentChange={onContentChange} onSelectNode={onSelectNode} />
           ) : (
             <div className="h-full w-full" data-canvas-no-zoom>
               {renderPanel?.(data, () => onSelectNode(data.id))}
@@ -350,26 +359,70 @@ function TextNodeBody({
   onSelectNode,
   onImportTextToNode,
   onSaveTextToAssets,
+  onAiGenerate,
+  onToggleRenderMode,
 }: {
   data: CanvasNodeData;
   onContentChange: (nodeId: string, content: string) => void;
   onSelectNode: (nodeId: string) => void;
   onImportTextToNode?: (nodeId: string) => void;
   onSaveTextToAssets?: (node: CanvasNodeData) => void;
+  onAiGenerate?: (nodeId: string) => void;
+  onToggleRenderMode?: (nodeId: string) => void;
 }) {
   const content = data.metadata?.content || "";
+  const isMarkdown = data.metadata?.renderMode === "markdown";
+
   return (
     <div className="relative h-full w-full">
-      <textarea
-        data-canvas-no-zoom
-        value={content}
-        onChange={(event) => onContentChange(data.id, event.target.value)}
-        placeholder="输入文本…"
-        className="h-full w-full cursor-text resize-none bg-transparent px-2.5 py-1.5 pb-9 text-sm outline-none placeholder:text-muted-foreground"
-        style={{ fontSize: data.metadata?.fontSize || 14 }}
-        onPointerDown={() => onSelectNode(data.id)}
-      />
-      <div className="absolute right-1.5 bottom-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100" data-canvas-no-zoom>
+      {isMarkdown ? (
+        <div
+          data-canvas-no-zoom
+          className="h-full w-full overflow-auto px-2.5 py-1.5 pb-9 text-sm leading-relaxed [&>*:first-child]:mt-0 [&_a]:text-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-2 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:text-xs [&_h1]:text-lg [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold [&_h3]:text-sm [&_h3]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2"
+          style={{ fontSize: data.metadata?.fontSize || 14 }}
+          onPointerDown={() => onSelectNode(data.id)}
+        >
+          {content.trim() ? (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          ) : (
+            <span className="text-muted-foreground">Markdown 预览为空</span>
+          )}
+        </div>
+      ) : (
+        <textarea
+          data-canvas-no-zoom
+          value={content}
+          onChange={(event) => onContentChange(data.id, event.target.value)}
+          placeholder="输入文本…"
+          className="h-full w-full cursor-text resize-none bg-transparent px-2.5 py-1.5 pb-9 text-sm outline-none placeholder:text-muted-foreground"
+          style={{ fontSize: data.metadata?.fontSize || 14 }}
+          onPointerDown={() => onSelectNode(data.id)}
+        />
+      )}
+
+      <div className="absolute top-1 right-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100" data-canvas-no-zoom>
+        {onToggleRenderMode && (
+          <button
+            type="button"
+            title={isMarkdown ? "切换为纯文本" : "切换为 Markdown 预览"}
+            className="inline-flex items-center justify-center rounded-md bg-background/90 p-1 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onToggleRenderMode(data.id)}
+          >
+            <span className="text-[10px] font-bold">{isMarkdown ? "Tx" : "Md"}</span>
+          </button>
+        )}
+        {onAiGenerate && (
+          <button
+            type="button"
+            title="AI 生成文本"
+            className="inline-flex items-center justify-center rounded-md bg-background/90 p-1 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onAiGenerate(data.id)}
+          >
+            <Sparkles className="size-3.5" />
+          </button>
+        )}
         <button
           type="button"
           title="导入提示词素材"
