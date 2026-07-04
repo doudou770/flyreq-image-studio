@@ -54,6 +54,8 @@ import {
   getValidOutputSizes,
   normalizeCustomImageSize,
   normalizeModel,
+  normalizeParallelCount,
+  PARALLEL_COUNT_OPTIONS,
   supportsCustomSize,
   supportsGptImageAdvancedParams,
   type GptImageAdvancedParams,
@@ -182,7 +184,7 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
     })
   );
   const [userParallelCount, setUserParallelCount] = useState<ParallelCount>(
-    [1, 2, 3, 4].includes(savedParams.parallelCount as ParallelCount) ? savedParams.parallelCount as ParallelCount : 1
+    normalizeParallelCount(savedParams.parallelCount)
   );
   const [userCustomSize, setUserCustomSize] = useState<string | undefined>(initialUserCustomSize);
   const [customSizeDialogOpen, setCustomSizeDialogOpen] = useState(false);
@@ -1125,21 +1127,22 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
                   <Layers className="h-3 w-3" />
                   <span className="text-[11px]">×{userParallelCount}</span>
                 </PopoverTrigger>
-                <PopoverContent className="w-36 p-1" align="start">
-                  {([1, 2, 3, 4] as ParallelCount[]).map(count => (
+                <PopoverContent className="w-56 p-2" align="start">
+                  <div className="grid grid-cols-5 gap-1">
+                  {PARALLEL_COUNT_OPTIONS.map(count => (
                     <button
                       key={count}
                       type="button"
                       onClick={() => { setUserParallelCount(count); setParallelPopoverOpen(false); }}
                       className={cn(
-                        'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted',
-                        count === userParallelCount && 'bg-muted font-medium'
+                        'flex h-8 items-center justify-center rounded-md text-sm hover:bg-muted',
+                        count === userParallelCount && 'bg-muted font-medium text-primary'
                       )}
                     >
-                      生成 {count} 张
-                      {count === userParallelCount && <Check className="h-3.5 w-3.5" />}
+                      {count}
                     </button>
                   ))}
+                  </div>
                 </PopoverContent>
               </Popover>
             </>

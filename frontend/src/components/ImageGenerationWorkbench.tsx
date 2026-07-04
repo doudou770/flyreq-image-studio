@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, CloudUpload, FileText, ImagePlus, Info, Loader2, Save, Sparkles, X, Zap } from 'lucide-react';
+import { ArrowUp, ChevronDown, CloudUpload, FileText, ImagePlus, Info, Loader2, Save, Sparkles, X, Zap } from 'lucide-react';
 import { AttachmentChips } from './AttachmentChips';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -20,13 +20,14 @@ import { addTextAsset, getAssetBlob, type ImageAsset, type TextAsset } from '@/l
 import { getDefaultModelId, MODEL_IMAGE_LIMITS, MODEL_OPTIONS, type ModelId } from '@/lib/gemini-config';
 import {
   DEFAULT_GPT_IMAGE_ADVANCED_PARAMS,
-  detectClosestAspectRatio,
   getAspectRatioOptions,
   getCustomSizeMaxSide,
   getGptImageAdvancedParamsForModel,
   getValidOutputSizes,
+  MAX_PARALLEL_COUNT,
   normalizeCustomImageSize,
   normalizeModel,
+  normalizeParallelCount,
   supportsCustomSize,
   type GptImageAdvancedParams,
   type GptImageBackground,
@@ -79,6 +80,7 @@ interface ImageGenerationWorkbenchProps {
     gptImageBackground?: GptImageBackground;
     gptImageOutputFormat?: GptImageOutputFormat;
     parallelCount?: ParallelCount;
+    promptVariants?: string[];
     refImages?: RefImageData[];
   };
   referenceDraft?: {
@@ -99,6 +101,13 @@ function getSettingsFallback(preferImageSettings: boolean): Partial<WorkbenchSet
   if (hasStoredSettings(primary)) return primary;
 
   return loadJsonFromStorage<WorkbenchSettings>(preferImageSettings ? T2I_SETTINGS_KEY : I2I_SETTINGS_KEY);
+}
+
+function normalizePromptVariants(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, MAX_PARALLEL_COUNT)
+    .map(item => (typeof item === 'string' ? item : ''));
 }
 
 export function ImageGenerationWorkbench({
@@ -122,6 +131,8 @@ export function ImageGenerationWorkbench({
   const [temperature, setTemperature] = useState<number>(1);
   const [gptImageAdvancedParams, setGptImageAdvancedParams] = useState<GptImageAdvancedParams>(DEFAULT_GPT_IMAGE_ADVANCED_PARAMS);
   const [parallelCount, setParallelCount] = useState<ParallelCount>(1);
+  const [promptVariants, setPromptVariants] = useState<string[]>([]);
+  const [promptVariantsOpen, setPromptVariantsOpen] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
 
   const [isDragOver, setIsDragOver] = useState(false);
@@ -142,9 +153,7 @@ export function ImageGenerationWorkbench({
 
   const modelLimit = MODEL_IMAGE_LIMITS[model] || { max: 1, description: '最多 1 张参考图片' };
   const maxImages = modelLimit.max;
-  const aspectRatioOptions = useMemo(() => getAspectRatioOptions(model, outputSize), [model, outputSize]);
   const currentMode: WorkbenchMode = pendingFiles.length > 0 ? 'image-to-image' : 'text-to-image';
-  const autoLayoutLocked = outputSize === 'auto';
   const disabledMessage = '请先在设置中配置 FlyReq API 密钥，配置完成后即可开始生成图片。';
 
   const handleParamsChange = useCallback((patch: Partial<GenerationParamsValue>) => {
@@ -153,7 +162,10 @@ export function ImageGenerationWorkbench({
     if ('customSize' in patch) setCustomSize(patch.customSize);
     if (patch.aspectRatio !== undefined) setAspectRatio(patch.aspectRatio);
     if (patch.temperature !== undefined) setTemperature(patch.temperature);
-    if (patch.parallelCount !== undefined) setParallelCount(patch.parallelCount);
+    if (patch.parallelCount !== undefined) {
+      setParallelCount(patch.parallelCount);
+      if (patch.parallelCount > 1) setPromptVariantsOpen(true);
+    }
     if (patch.gptImageAdvancedParams !== undefined) setGptImageAdvancedParams(patch.gptImageAdvancedParams);
   }, []);
 
@@ -192,9 +204,8 @@ export function ImageGenerationWorkbench({
         background: useInitial ? initialData?.gptImageBackground : saved.gptImageBackground,
         outputFormat: useInitial ? initialData?.gptImageOutputFormat : saved.gptImageOutputFormat,
       });
-      const nextParallelCount: ParallelCount = useInitial && initialData?.parallelCount && [1, 2, 3, 4].includes(initialData.parallelCount)
-        ? initialData.parallelCount
-        : (saved.parallelCount && [1, 2, 3, 4].includes(saved.parallelCount) ? saved.parallelCount : 1);
+      const nextParallelCount = normalizeParallelCount(useInitial ? initialData?.parallelCount : saved.parallelCount);
+      const nextPromptVariants = normalizePromptVariants(useInitial ? initialData?.promptVariants : saved.promptVariants);
 
       setModel(nextModel);
       setOutputSize(nextOutputSize);
@@ -203,6 +214,8 @@ export function ImageGenerationWorkbench({
       setTemperature(nextTemperature);
       setGptImageAdvancedParams(nextAdvancedParams);
       setParallelCount(nextParallelCount);
+      setPromptVariants(nextPromptVariants);
+      setPromptVariantsOpen(nextParallelCount > 1 && nextPromptVariants.some(item => item.trim()));
       if (useInitial) {
         setPrompt(initialData?.prompt || '');
         setPendingFiles((initialData?.refImages || []).map(img => ({
@@ -236,8 +249,9 @@ export function ImageGenerationWorkbench({
       gptImageBackground: gptImageAdvancedParams.background,
       gptImageOutputFormat: gptImageAdvancedParams.outputFormat,
       parallelCount,
+      promptVariants,
     });
-  }, [model, outputSize, customSize, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, settingsReady]);
+  }, [model, outputSize, customSize, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, promptVariants, settingsReady]);
 
   const handleOptimize = useCallback(() => {
     if (!prompt.trim()) return;
@@ -317,15 +331,6 @@ export function ImageGenerationWorkbench({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- referenceDraft.id is the stable identity; refImages is consumed via ref guard
   }, [maxImages, model, onDraftConsumed, referenceDraft?.id]);
 
-  const detectImageAspectRatio = useCallback(async (dataUrl: string): Promise<AspectRatio | null> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(detectClosestAspectRatio(img.width, img.height, aspectRatioOptions));
-      img.onerror = () => resolve(null);
-      img.src = dataUrl;
-    });
-  }, [aspectRatioOptions]);
-
   const processFiles = useCallback(async (fileList: FileList | File[]) => {
     const filesToProcess = Array.from(fileList).filter(f => f.type.startsWith('image/'));
     if (filesToProcess.length === 0) {
@@ -342,17 +347,12 @@ export function ImageGenerationWorkbench({
 
     try {
       const newFiles: UploadedFile[] = [];
-      let firstDetectedRatio: AspectRatio | null = null;
 
       for (const file of filesToProcess) {
         const optimized = await prepareUploadImage(file);
         if (optimized.processedSize > MAX_UPLOAD_SIZE_BYTES) {
           setUploadError(`文件过大: ${file.name}，压缩后仍超过 10MB`);
           continue;
-        }
-
-        if (!autoLayoutLocked && newFiles.length === 0 && pendingFiles.length === 0) {
-          firstDetectedRatio = await detectImageAspectRatio(optimized.preview);
         }
 
         newFiles.push({
@@ -370,16 +370,12 @@ export function ImageGenerationWorkbench({
         const uniqueNew = newFiles.filter(f => !existingIds.has(f.id));
         return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
       });
-
-      if (firstDetectedRatio && pendingFiles.length === 0) {
-        setAspectRatio(firstDetectedRatio);
-      }
     } catch {
       setUploadError('文件读取失败');
     } finally {
       setLoading(false);
     }
-  }, [autoLayoutLocked, detectImageAspectRatio, maxImages, model, pendingFiles.length]);
+  }, [maxImages, model, pendingFiles.length]);
 
   const handleImportAssets = useCallback(async (selectedAssets: ImageAsset[]) => {
     if (selectedAssets.length === 0) return;
@@ -395,7 +391,6 @@ export function ImageGenerationWorkbench({
 
     try {
       const importedFiles: UploadedFile[] = [];
-      let firstDetectedRatio: AspectRatio | null = null;
 
       for (const asset of selectedAssets.slice(0, Math.min(remainingSlots, MAX_ASSET_IMPORTS))) {
         const blob = await getAssetBlob(asset.id);
@@ -407,10 +402,6 @@ export function ImageGenerationWorkbench({
         if (optimized.processedSize > MAX_UPLOAD_SIZE_BYTES) {
           setUploadError(`文件过大: ${asset.name}，压缩后仍超过 10MB`);
           continue;
-        }
-
-        if (!autoLayoutLocked && importedFiles.length === 0 && pendingFiles.length === 0) {
-          firstDetectedRatio = await detectImageAspectRatio(optimized.preview);
         }
 
         importedFiles.push({
@@ -429,10 +420,6 @@ export function ImageGenerationWorkbench({
         return uniqueImported.length > 0 ? [...prev, ...uniqueImported] : prev;
       });
 
-      if (firstDetectedRatio && pendingFiles.length === 0) {
-        setAspectRatio(firstDetectedRatio);
-      }
-
       if (selectedAssets.length > remainingSlots) {
         setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图，已导入可容纳的图片`);
       }
@@ -441,7 +428,7 @@ export function ImageGenerationWorkbench({
     } finally {
       setLoading(false);
     }
-  }, [autoLayoutLocked, detectImageAspectRatio, maxImages, model, pendingFiles.length]);
+  }, [maxImages, model, pendingFiles.length]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -517,6 +504,23 @@ export function ImageGenerationWorkbench({
     }
   }, [currentMode, prompt]);
 
+  const activePromptVariants = useMemo(
+    () => Array.from({ length: parallelCount }, (_, index) => promptVariants[index] || ''),
+    [parallelCount, promptVariants],
+  );
+  const submitPromptVariants = useMemo(() => {
+    const values = normalizePromptVariants(activePromptVariants).map(item => item.trim());
+    return values.some(Boolean) ? values : undefined;
+  }, [activePromptVariants]);
+
+  const handlePromptVariantChange = useCallback((index: number, value: string) => {
+    setPromptVariants(prev => {
+      const next = prev.slice(0, MAX_PARALLEL_COUNT);
+      next[index] = value;
+      return next;
+    });
+  }, []);
+
   const handleSubmit = () => {
     if (!prompt.trim() || disabled || loading) return;
     if (!model) {
@@ -539,6 +543,7 @@ export function ImageGenerationWorkbench({
         gptImageBackground: gptImageAdvancedParams.background,
         gptImageOutputFormat: gptImageAdvancedParams.outputFormat,
         parallelCount,
+        promptVariants: submitPromptVariants,
       });
     } else {
       onSubmitText({
@@ -553,17 +558,22 @@ export function ImageGenerationWorkbench({
         gptImageBackground: gptImageAdvancedParams.background,
         gptImageOutputFormat: gptImageAdvancedParams.outputFormat,
         parallelCount,
+        promptVariants: submitPromptVariants,
       });
     }
 
     setPendingFiles([]);
     setPrompt('');
+    setPromptVariants([]);
+    setPromptVariantsOpen(false);
     setUploadError(null);
     onDraftConsumed?.();
   };
 
   const handleClearDraft = () => {
     setPrompt('');
+    setPromptVariants([]);
+    setPromptVariantsOpen(false);
     setPendingFiles([]);
     setUploadError(null);
     onDraftConsumed?.();
@@ -671,6 +681,40 @@ export function ImageGenerationWorkbench({
                 onChange={handleParamsChange}
               />
             </div>
+
+            {parallelCount > 1 && (
+              <div className="px-3 pb-2 sm:px-4">
+                <button
+                  type="button"
+                  onClick={() => setPromptVariantsOpen(open => !open)}
+                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <span className="font-medium">
+                    每张图要求
+                    {submitPromptVariants && (
+                      <span className="ml-1 font-normal text-primary">
+                        {submitPromptVariants.filter(Boolean).length}/{parallelCount}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', promptVariantsOpen && 'rotate-180')} />
+                </button>
+                {promptVariantsOpen && (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {activePromptVariants.map((value, index) => (
+                      <Textarea
+                        key={index}
+                        value={value}
+                        onChange={(event) => handlePromptVariantChange(index, event.target.value)}
+                        placeholder={`第 ${index + 1} 张的额外要求，可留空`}
+                        rows={2}
+                        className="min-h-14 resize-none text-xs placeholder:text-placeholder"
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="ml-auto flex w-full justify-end gap-2 px-3 pb-2 sm:w-auto sm:px-4">
               <Button variant="ghost" size="icon" onClick={() => setQuickPromptOpen(true)} title="快速提示词">

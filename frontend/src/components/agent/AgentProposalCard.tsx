@@ -28,6 +28,7 @@ import {
   getValidOutputSizes,
   getGptImageAdvancedParamsForModel,
   normalizeCustomImageSize,
+  PARALLEL_COUNT_OPTIONS,
   resolveAgentLayout,
   supportsGptImageAdvancedParams,
   supportsAutoLayout,
@@ -63,8 +64,6 @@ interface AgentProposalCardProps {
   onApprove: (prompt: string, selectedImageIds: string[], model: ModelId, params: AgentApproveParams) => void;
   onCancel: () => void;
 }
-
-const PARALLEL_OPTIONS: ParallelCount[] = [1, 2, 3, 4];
 
 export function AgentProposalCard({
   proposal,
@@ -551,21 +550,22 @@ export function AgentProposalCard({
             <Layers className="h-3 w-3" />
             <span className="text-[11px]">×{layout.parallelCount}</span>
           </PopoverTrigger>
-          <PopoverContent className="w-36 p-1" align="start">
-            {PARALLEL_OPTIONS.map(count => (
+          <PopoverContent className="w-56 p-2" align="start">
+            <div className="grid grid-cols-5 gap-1">
+            {PARALLEL_COUNT_OPTIONS.map(count => (
               <button
                 key={count}
                 type="button"
                 onClick={() => handleParallelChange(count)}
                 className={cn(
-                  'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted',
-                  count === layout.parallelCount && 'bg-muted font-medium'
+                  'flex h-8 items-center justify-center rounded-md text-sm hover:bg-muted',
+                  count === layout.parallelCount && 'bg-muted font-medium text-primary'
                 )}
               >
-                生成 {count} 张
-                {count === layout.parallelCount && <Check className="h-3.5 w-3.5" />}
+                {count}
               </button>
             ))}
+            </div>
           </PopoverContent>
         </Popover>
       </div>

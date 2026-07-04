@@ -19,4 +19,5 @@ export interface ImageFormSettings {
   gptImageBackground: GptImageBackground;
   gptImageOutputFormat: GptImageOutputFormat;
   parallelCount: ParallelCount;
+  promptVariants?: string[];
 }

@@ -45,6 +45,7 @@ export interface StoredJob {
   warning?: string;
   imageData?: string;
   parallelCount?: number;
+  promptVariants?: string[];
   images?: string[];
   serverTaskId?: string;
   serverTaskAcked?: boolean;

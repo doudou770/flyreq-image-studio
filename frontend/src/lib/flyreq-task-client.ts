@@ -48,6 +48,7 @@ export interface CreateFlyreqTaskInput {
   gptImageOutputFormat?: GptImageOutputFormat;
   streamImages?: boolean;
   parallelCount: number;
+  promptVariants?: string[];
   images: ImageReference[];
 }
 
@@ -69,6 +70,9 @@ export interface FlyreqQueueStatus {
   processingCount: number;
   queuedCount: number;
   pendingCount?: number;
+  processingSlots?: number;
+  queuedSlots?: number;
+  pendingSlots?: number;
   maxQueueSize?: number;
   remainingQueueSlots?: number;
   displayConcurrency: number;

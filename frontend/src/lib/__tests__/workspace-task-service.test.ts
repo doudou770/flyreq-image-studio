@@ -167,6 +167,35 @@ describe('submitTextToImage', () => {
     }));
     expect(getJob().serverTaskId).toBe('task-advanced-1');
   });
+
+  it('passes per-image prompt variants into task payload and job history', async () => {
+    const job = makeJob();
+    const { actions } = createActions(job);
+    const promptVariants = ['正面半身', '侧身站姿', ''];
+
+    await submitTextToImage({
+      prompts: ['保持同一角色身份，生成一组宣传图'],
+      outputSize: '1K',
+      aspectRatio: '1:1',
+      temperature: 1,
+      model: 'flyreq-gpt-image-2',
+      gptImageQuality: 'auto',
+      gptImageStyle: 'auto',
+      gptImageBackground: 'auto',
+      gptImageOutputFormat: 'png',
+      parallelCount: 3,
+      promptVariants,
+    }, actions, vi.fn());
+
+    expect(mockedCreateFlyreqTask).toHaveBeenCalledWith(expect.objectContaining({
+      parallelCount: 3,
+      promptVariants,
+    }));
+    expect(actions.addJob).toHaveBeenCalledWith(expect.objectContaining({
+      parallelCount: 3,
+      promptVariants,
+    }));
+  });
 });
 
 describe('finalizeCompletedServerTask', () => {

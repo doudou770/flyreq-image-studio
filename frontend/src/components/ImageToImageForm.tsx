@@ -35,6 +35,8 @@ import {
   getGptImageAdvancedParamsForModel,
   normalizeCustomImageSize,
   normalizeModel,
+  normalizeParallelCount,
+  PARALLEL_COUNT_OPTIONS,
   supportsGptImageAdvancedParams,
   supportsAutoLayout,
   supportsCustomSize,
@@ -307,9 +309,7 @@ export function ImageToImageForm({
       background: useInitial ? initialData?.gptImageBackground : saved.gptImageBackground,
       outputFormat: useInitial ? initialData?.gptImageOutputFormat : saved.gptImageOutputFormat,
     });
-    const nextParallelCount: ParallelCount = useInitial && initialData?.parallelCount && [1, 2, 3, 4].includes(initialData.parallelCount)
-      ? initialData.parallelCount
-      : (saved.parallelCount && [1, 2, 3, 4].includes(saved.parallelCount) ? saved.parallelCount : 1);
+    const nextParallelCount = normalizeParallelCount(useInitial ? initialData?.parallelCount : saved.parallelCount);
 
     setModel(nextModel);
     setOutputSize(nextOutputSize);
@@ -832,10 +832,10 @@ export function ImageToImageForm({
               <span className="text-[11px]">x{parallelCount}</span>
             </PopoverTrigger>
             <PopoverContent className="w-36 p-1" align="start">
-              {[1, 2, 3, 4].map((count) => (
+              {PARALLEL_COUNT_OPTIONS.map((count) => (
                 <button
                   key={count}
-                  onClick={() => handleParallelCountChange(count as ParallelCount)}
+                  onClick={() => handleParallelCountChange(count)}
                   className={cn(
                     'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted',
                     parallelCount === count && 'bg-muted font-medium'

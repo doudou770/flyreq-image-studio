@@ -28,6 +28,7 @@ import {
   getGptImageAdvancedParamsForModel,
   normalizeCustomImageSize,
   normalizeModel,
+  normalizeParallelCount,
   supportsCustomSize,
   type GptImageAdvancedParams,
   type GptImageBackground,
@@ -196,9 +197,7 @@ export function TextToImageForm({ onSubmit, disabled = false, onDraftConsumed, o
       background: useInitial ? initialData?.gptImageBackground : saved.gptImageBackground,
       outputFormat: useInitial ? initialData?.gptImageOutputFormat : saved.gptImageOutputFormat,
     });
-    const nextParallelCount: ParallelCount = useInitial && initialData?.parallelCount && [1, 2, 3, 4].includes(initialData.parallelCount)
-      ? initialData.parallelCount
-      : (saved.parallelCount && [1, 2, 3, 4].includes(saved.parallelCount) ? saved.parallelCount : 1);
+    const nextParallelCount = normalizeParallelCount(useInitial ? initialData?.parallelCount : saved.parallelCount);
 
     queueMicrotask(() => {
       setModel(nextModel);
