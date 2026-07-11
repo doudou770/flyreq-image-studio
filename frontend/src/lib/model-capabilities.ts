@@ -9,7 +9,12 @@ import {
 import { getImageModelById, getImageModelOutputSizes, loadRegistry, type ImageModelConfig } from '@/lib/flyreq-models';
 import type { AspectRatio, OutputSize, RefImageData, StoredJob } from '@/lib/job-store';
 
-export type ParallelCount = 1 | 2 | 3 | 4;
+export const MAX_PARALLEL_COUNT = 20;
+export type ParallelCount = number;
+export const PARALLEL_COUNT_OPTIONS: ParallelCount[] = Array.from(
+  { length: MAX_PARALLEL_COUNT },
+  (_, index) => index + 1,
+);
 type FixedOutputSize = Exclude<OutputSize, 'auto'>;
 
 export type GptImageQuality = 'auto' | 'high' | 'medium' | 'low';
@@ -147,6 +152,7 @@ export interface RetryData {
   customSize?: string;
   model: ModelId;
   parallelCount: ParallelCount;
+  promptVariants?: string[];
   gptImageQuality: GptImageQuality;
   gptImageStyle: GptImageStyle;
   gptImageBackground: GptImageBackground;
@@ -479,9 +485,7 @@ export function getCompatibleRetryData(job: StoredJob): RetryData {
     ? normalizeCustomImageSize(job.custom_size, getCustomSizeMaxSide(model))
     : undefined;
   const temperature = supportsTemperature && typeof job.temperature === 'number' ? job.temperature : 1;
-  const parallelCount: ParallelCount = [1, 2, 3, 4].includes(job.parallelCount as ParallelCount)
-    ? (job.parallelCount as ParallelCount)
-    : 1;
+  const parallelCount = normalizeParallelCount(job.parallelCount);
   const advancedParams = getGptImageAdvancedParamsForModel(model, {
     quality: job.gptImageQuality,
     style: job.gptImageStyle,
@@ -498,6 +502,7 @@ export function getCompatibleRetryData(job: StoredJob): RetryData {
     customSize,
     temperature,
     parallelCount,
+    promptVariants: job.promptVariants,
     gptImageQuality: advancedParams.quality,
     gptImageStyle: advancedParams.style,
     gptImageBackground: advancedParams.background,
@@ -531,7 +536,7 @@ export interface AgentLayoutIntent {
   requestedOutputSize?: string;
   /** 建议温度 0-2 */
   temperature?: number;
-  /** 建议并行数量 1-4 */
+  /** 建议并行数量 1-20 */
   parallelCount?: number;
 }
 
@@ -701,8 +706,8 @@ export function resolveAgentLayout(
   };
 }
 
-function normalizeParallelCount(value?: number): ParallelCount {
+export function normalizeParallelCount(value?: number): ParallelCount {
   const rounded = Math.round(Number(value) || 1);
-  const clamped = clampNumber(rounded, 1, 4);
+  const clamped = clampNumber(rounded, 1, MAX_PARALLEL_COUNT);
   return clamped as ParallelCount;
 }

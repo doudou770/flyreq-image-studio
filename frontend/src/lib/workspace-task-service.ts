@@ -30,6 +30,7 @@ export interface TextToImageSubmitInput {
   gptImageBackground: GptImageBackground;
   gptImageOutputFormat: GptImageOutputFormat;
   parallelCount: ParallelCount;
+  promptVariants?: string[];
 }
 
 export interface ImageToImageSubmitInput {
@@ -45,6 +46,7 @@ export interface ImageToImageSubmitInput {
   gptImageBackground: GptImageBackground;
   gptImageOutputFormat: GptImageOutputFormat;
   parallelCount: ParallelCount;
+  promptVariants?: string[];
 }
 
 export interface SubmitActions {
@@ -114,6 +116,7 @@ function createBaseJob(
   gptImageBackground: GptImageBackground,
   gptImageOutputFormat: GptImageOutputFormat,
   parallelCount: ParallelCount,
+  promptVariants?: string[],
   refImages?: StoredJob['refImages']
 ): StoredJob {
   const advancedParams = getGptImageAdvancedParamsForModel(model as ModelId, {
@@ -139,6 +142,7 @@ function createBaseJob(
     gptImageBackground: advancedParams.background,
     gptImageOutputFormat: advancedParams.outputFormat,
     parallelCount,
+    promptVariants,
     created_at: new Date().toISOString(),
     refImages,
   };
@@ -360,7 +364,8 @@ export async function submitTextToImage(
         input.gptImageStyle,
         input.gptImageBackground,
         input.gptImageOutputFormat,
-        input.parallelCount
+        input.parallelCount,
+        input.promptVariants
       );
       actions.addJob(job);
 
@@ -382,6 +387,7 @@ export async function submitTextToImage(
           gptImageOutputFormat: input.gptImageOutputFormat,
           streamImages: provider.streamImages,
           parallelCount: input.parallelCount,
+          promptVariants: input.promptVariants,
           images: [],
         });
 
@@ -433,6 +439,7 @@ export async function submitImageToImage(
       input.gptImageBackground,
       input.gptImageOutputFormat,
       input.parallelCount,
+      input.promptVariants,
       refImages
     );
 
@@ -456,6 +463,7 @@ export async function submitImageToImage(
         gptImageOutputFormat: input.gptImageOutputFormat,
         streamImages: provider.streamImages,
         parallelCount: input.parallelCount,
+        promptVariants: input.promptVariants,
         images: imageReferences,
       });
 

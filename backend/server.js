@@ -15,6 +15,7 @@ const TASK_STATUS = {
   FAILED: 'failed',
 };
 const GLOBAL_TASK_CONCURRENCY = 50;
+const MAX_PARALLEL_COUNT = 20;
 const DEFAULT_LIMIT_CONFIG = {
   maxQueueSize: 200,
   rateLimitWindowMs: 60 * 1000,
@@ -420,9 +421,13 @@ function enforceRateLimit(req, body, config) {
   return { ip, apiKeyHash };
 }
 
-function enforceQueueCapacity(source, config) {
+function enforceQueueCapacity(source, config, requestedSlots = 1) {
   const stats = getQueueStats();
+  const slotsToReserve = Math.max(1, Math.min(MAX_PARALLEL_COUNT, Math.trunc(Number(requestedSlots)) || 1));
   if (stats.pendingCount >= config.maxQueueSize) {
+    throw createHttpError(503, 'QUEUE_FULL', LIMIT_ERROR_MESSAGES.queueFull, config.retryAfterSeconds);
+  }
+  if (stats.pendingSlots + slotsToReserve > config.maxQueueSize) {
     throw createHttpError(503, 'QUEUE_FULL', LIMIT_ERROR_MESSAGES.queueFull, config.retryAfterSeconds);
   }
   if (getPendingCountForSource('ip', source.ip) >= config.maxPendingTasksPerIp) {
@@ -443,15 +448,27 @@ function isRejectNewTasksEnabled() {
 function getQueueStats() {
   const config = getLimitConfig();
   const rows = db.prepare(`
-    SELECT status, COUNT(*) AS count
-    FROM tasks
-    WHERE status IN (?, ?, ?)
+    SELECT status, COUNT(*) AS count, SUM(slot_count) AS slots
+    FROM (
+      SELECT
+        status,
+        CASE
+          WHEN CAST(json_extract(request_json, '$.parallelCount') AS INTEGER) BETWEEN 1 AND ? THEN CAST(json_extract(request_json, '$.parallelCount') AS INTEGER)
+          ELSE 1
+        END AS slot_count
+      FROM tasks
+      WHERE status IN (?, ?, ?)
+    )
     GROUP BY status
-  `).all(TASK_STATUS.QUEUED, TASK_STATUS.LEGACY_QUEUED, TASK_STATUS.PROCESSING);
+  `).all(MAX_PARALLEL_COUNT, TASK_STATUS.QUEUED, TASK_STATUS.LEGACY_QUEUED, TASK_STATUS.PROCESSING);
   const counts = Object.fromEntries(rows.map(row => [row.status, Number(row.count || 0)]));
+  const slots = Object.fromEntries(rows.map(row => [row.status, Number(row.slots || 0)]));
   const processingCount = counts[TASK_STATUS.PROCESSING] || 0;
   const queuedCount = (counts[TASK_STATUS.QUEUED] || 0) + (counts[TASK_STATUS.LEGACY_QUEUED] || 0);
+  const processingSlots = slots[TASK_STATUS.PROCESSING] || 0;
+  const queuedSlots = (slots[TASK_STATUS.QUEUED] || 0) + (slots[TASK_STATUS.LEGACY_QUEUED] || 0);
   const totalActiveTasks = processingCount + queuedCount;
+  const totalActiveSlots = processingSlots + queuedSlots;
   const acceptingNewTasks = !isRejectNewTasksEnabled();
 
   return {
@@ -460,10 +477,13 @@ function getQueueStats() {
     processingCount,
     queuedCount,
     pendingCount: totalActiveTasks,
+    processingSlots,
+    queuedSlots,
+    pendingSlots: totalActiveSlots,
     maxQueueSize: config.maxQueueSize,
-    remainingQueueSlots: Math.max(0, config.maxQueueSize - totalActiveTasks),
-    displayConcurrency: Math.min(GLOBAL_TASK_CONCURRENCY, totalActiveTasks),
-    displayQueued: Math.max(0, totalActiveTasks - GLOBAL_TASK_CONCURRENCY),
+    remainingQueueSlots: Math.max(0, config.maxQueueSize - totalActiveSlots),
+    displayConcurrency: Math.min(GLOBAL_TASK_CONCURRENCY, totalActiveSlots),
+    displayQueued: Math.max(0, totalActiveSlots - GLOBAL_TASK_CONCURRENCY),
     acceptingNewTasks,
     rateLimitWindowMs: config.rateLimitWindowMs,
     rateLimitMaxRequestsPerIp: config.maxRequestsPerIp,
@@ -778,9 +798,16 @@ function validateCreatePayload(body) {
   if (body.mode !== 'text-to-image' && body.mode !== 'image-to-image') throw new Error('任务模式无效');
   if (typeof body.prompt !== 'string' || body.prompt.trim().length === 0) throw new Error('提示词不能为空');
   if (typeof body.model !== 'string' || body.model.trim().length === 0) throw new Error('模型名称不能为空');
-  if (!Number.isInteger(body.parallelCount) || body.parallelCount < 1 || body.parallelCount > 4) throw new Error('并发数量无效');
+  if (!Number.isInteger(body.parallelCount) || body.parallelCount < 1 || body.parallelCount > MAX_PARALLEL_COUNT) throw new Error('并发数量无效');
 
   if (!Array.isArray(body.images)) body.images = [];
+  if (!Array.isArray(body.promptVariants)) {
+    body.promptVariants = [];
+  } else {
+    body.promptVariants = body.promptVariants
+      .slice(0, body.parallelCount)
+      .map(item => typeof item === 'string' ? item.trim() : '');
+  }
   body.baseUrl = normalizeProtocolBaseUrl(body.protocol, body.baseUrl);
   if (!body.baseUrl) throw new Error('缺少 API 基础地址');
   body.streamImages = body.protocol === 'openai' ? Boolean(body.streamImages) : false;
@@ -794,7 +821,7 @@ function createTask(body, req) {
     throw createHttpError(503, 'SERVER_NOT_ACCEPTING_TASKS', LIMIT_ERROR_MESSAGES.notAcceptingTasks, limitConfig.retryAfterSeconds);
   }
   const source = enforceRateLimit(req, body, limitConfig);
-  enforceQueueCapacity(source, limitConfig);
+  enforceQueueCapacity(source, limitConfig, body.parallelCount);
 
   const taskId = randomUUID();
   const now = new Date().toISOString();
@@ -815,6 +842,7 @@ function createTask(body, req) {
     gptImageOutputFormat: body.gptImageOutputFormat,
     streamImages: body.streamImages,
     parallelCount: body.parallelCount,
+    promptVariants: body.promptVariants,
     images: body.images.map(img => ({ mimeType: img.mimeType })),
   };
   const tx = db.transaction(() => {
@@ -1354,14 +1382,20 @@ function drainQueue() {
 
 async function generateSingleImage(apiKey, request, taskId, index) {
   try {
-    const image = await generateFlyreqImage(apiKey, request);
+    const variantPrompt = typeof request.promptVariants?.[index] === 'string'
+      ? request.promptVariants[index].trim()
+      : '';
+    const requestForImage = variantPrompt
+      ? { ...request, prompt: `${request.prompt}\n\n本张图要求：\n${variantPrompt}` }
+      : request;
+    const image = await generateFlyreqImage(apiKey, requestForImage);
     const expanded = image.startsWith('MULTI_URL:') ? image.substring(10).split('|||').map(url => `URL:${url}`) : [image];
     const diskRefs = [];
     for (let subIdx = 0; subIdx < expanded.length; subIdx++) {
       const img = expanded[subIdx];
       if (img.startsWith('URL:')) {
         const remoteUrl = img.substring(4);
-        const result = await downloadUrlToDisk(taskId, index, subIdx, remoteUrl, { apiKey, request });
+        const result = await downloadUrlToDisk(taskId, index, subIdx, remoteUrl, { apiKey, request: requestForImage });
         diskRefs.push(`URL:${result.httpUrl}`);
       } else {
         const buffer = Buffer.from(img, 'base64');

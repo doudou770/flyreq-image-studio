@@ -51,6 +51,13 @@ import { getCleanUrlAfterExternalModelConfig, parseExternalModelConfig, type Ext
 export function WorkspaceShell() {
   const { locale, t } = useI18n();
   const queueStatus = useQueueStatus();
+  const processingSlots = queueStatus?.processingSlots ?? queueStatus?.processingCount ?? 0;
+  const queuedSlots = queueStatus?.queuedSlots ?? queueStatus?.queuedCount ?? 0;
+  const pendingSlots = queueStatus?.pendingSlots ?? (
+    typeof processingSlots === 'number' && typeof queuedSlots === 'number'
+      ? processingSlots + queuedSlots
+      : undefined
+  );
   const { wideMode, toggleWideMode } = useWideMode();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [externalModelConfig, setExternalModelConfig] = useState<ExternalModelConfig | null>(null);
@@ -181,6 +188,7 @@ export function WorkspaceShell() {
         gptImageBackground: workspace.retryData.gptImageBackground,
         gptImageOutputFormat: workspace.retryData.gptImageOutputFormat,
         parallelCount: workspace.retryData.parallelCount,
+        promptVariants: workspace.retryData.promptVariants,
         refImages: workspace.retryData.refImages,
       }
       : undefined
@@ -328,17 +336,17 @@ export function WorkspaceShell() {
                     {queueStatus ? (
                       <div className="flex flex-col gap-1">
                         <span className="rounded-full bg-muted px-3 py-1 text-center text-xs text-muted-foreground">
-                          {t('queue.concurrency', { count: queueStatus.processingCount })}
+                          {t('queue.concurrency', { count: processingSlots })}
                         </span>
                         <span className={cn(
                           'rounded-full px-3 py-1 text-center text-xs',
-                          typeof queueStatus.queuedCount === 'number' && typeof queueStatus.maxQueueSize === 'number' && queueStatus.queuedCount >= queueStatus.maxQueueSize
+                          typeof pendingSlots === 'number' && typeof queueStatus.maxQueueSize === 'number' && pendingSlots >= queueStatus.maxQueueSize
                             ? 'bg-destructive/10 text-destructive'
                             : 'bg-muted text-muted-foreground'
                         )}>
-                          {typeof queueStatus.maxQueueSize === 'number'
-                            ? t('queue.queuedMax', { count: queueStatus.queuedCount, max: queueStatus.maxQueueSize })
-                            : t('queue.queued', { count: queueStatus.queuedCount })}
+                          {typeof pendingSlots === 'number' && typeof queueStatus.maxQueueSize === 'number'
+                            ? t('queue.capacity', { count: pendingSlots, max: queueStatus.maxQueueSize })
+                            : t('queue.queued', { count: queuedSlots })}
                         </span>
                         <span className="rounded-full bg-muted px-3 py-1 text-center text-xs text-muted-foreground">
                           {t('queue.status', { status: queueStatus.acceptingNewTasks ? t('queue.statusOpen') : t('queue.statusClosed') })}

@@ -16,6 +16,7 @@ import {
   getOutputSizeLabel,
   getSizeOptions,
   normalizeCustomImageSize,
+  PARALLEL_COUNT_OPTIONS,
   supportsAutoLayout,
   supportsCustomSize,
   supportsGptImageAdvancedParams,
@@ -211,17 +212,18 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className }:
           <Copy className="h-3 w-3" />
           <span className="text-[11px]">x{value.parallelCount}</span>
         </PopoverTrigger>
-        <PopoverContent className="w-36 p-1" align="start">
-          {[1, 2, 3, 4].map((count) => (
+        <PopoverContent className="w-56 p-2" align="start">
+          <div className="grid grid-cols-5 gap-1">
+          {PARALLEL_COUNT_OPTIONS.map((count) => (
             <button
               key={count}
-              onClick={() => handleParallelCountChange(count as ParallelCount)}
-              className={cn('flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted', value.parallelCount === count && 'bg-muted font-medium')}
+              onClick={() => handleParallelCountChange(count)}
+              className={cn('flex h-8 items-center justify-center rounded-md text-sm hover:bg-muted', value.parallelCount === count && 'bg-muted font-medium text-primary')}
             >
-              生成 {count} 张
-              {value.parallelCount === count && <Check className="h-3.5 w-3.5" />}
+              {count}
             </button>
           ))}
+          </div>
         </PopoverContent>
       </Popover>
 

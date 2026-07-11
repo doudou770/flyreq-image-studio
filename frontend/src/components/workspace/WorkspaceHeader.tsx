@@ -59,6 +59,13 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
   ref,
 ) {
   const { t } = useI18n();
+  const processingSlots = queueStatus?.processingSlots ?? queueStatus?.processingCount ?? 0;
+  const queuedSlots = queueStatus?.queuedSlots ?? queueStatus?.queuedCount ?? 0;
+  const pendingSlots = queueStatus?.pendingSlots ?? (
+    typeof processingSlots === 'number' && typeof queuedSlots === 'number'
+      ? processingSlots + queuedSlots
+      : undefined
+  );
   const [viewerOpen, setViewerOpen] = useState(false);
   const [imageSrc, setImageSrc] = useState('');
   const [imageTitle, setImageTitle] = useState('');
@@ -156,21 +163,21 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
             {queueStatus ? (
               <>
                 <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-5 text-muted-foreground sm:px-3 sm:py-1 sm:text-xs sm:leading-normal">
-                  {t('queue.concurrency', { count: queueStatus.processingCount })}
+                  {t('queue.concurrency', { count: processingSlots })}
                 </span>
-                {typeof queueStatus.queuedCount === 'number' && typeof queueStatus.maxQueueSize === 'number' && (
+                {typeof pendingSlots === 'number' && typeof queueStatus.maxQueueSize === 'number' && (
                   <span className={cn(
                     'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] leading-5 sm:px-3 sm:py-1 sm:text-xs sm:leading-normal',
-                    queueStatus.queuedCount >= queueStatus.maxQueueSize
+                    pendingSlots >= queueStatus.maxQueueSize
                       ? 'bg-destructive/10 text-destructive'
                       : 'bg-muted text-muted-foreground'
                   )}>
-                    {t('queue.queued', { count: queueStatus.queuedCount })}<span className="hidden sm:inline"> {t('queue.queuedMax', { count: queueStatus.queuedCount, max: queueStatus.maxQueueSize }).replace(t('queue.queued', { count: queueStatus.queuedCount }), '')}</span>
+                    {t('queue.capacity', { count: pendingSlots, max: queueStatus.maxQueueSize })}
                   </span>
                 )}
-                {typeof queueStatus.queuedCount === 'number' && typeof queueStatus.maxQueueSize !== 'number' && (
+                {typeof queuedSlots === 'number' && typeof queueStatus.maxQueueSize !== 'number' && (
                   <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-5 text-muted-foreground sm:px-3 sm:py-1 sm:text-xs sm:leading-normal">
-                    {t('queue.queued', { count: queueStatus.queuedCount })}
+                    {t('queue.queued', { count: queuedSlots })}
                   </span>
                 )}
                 <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-5 text-muted-foreground sm:px-3 sm:py-1 sm:text-xs sm:leading-normal">
