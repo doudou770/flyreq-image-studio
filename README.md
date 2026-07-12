@@ -97,7 +97,7 @@ FlyReq Image 采用**用户自定义模型**架构：
 - **模型级配置**：每个图片模型和文本模型都独立保存协议、显示名称、模型 ID、API Key 与 Base URL
 - **图像模型**：用户自由添加、编辑、删除，支持设置协议、显示名称、模型 ID、最大参考图数量、最大分辨率
 - **Image 2 额外参数**：仅 OpenAI 图片模型显示，透明背景、质量、风格控件默认开启，用户可手动关闭
-- **流式图片请求**：仅 OpenAI Images 协议显示，可对兼容接口发送 `stream=true`，用于降低 New API / Nginx / Cloudflare 长耗时图片生成时的 504 截断风险；上游不支持时后端自动回退非流式
+- **流式图片请求**：仅 OpenAI Images 协议显示，可对兼容接口发送 `stream=true`，用于降低 New API / Nginx / Cloudflare 长耗时图片生成时的 504 截断风险；上游不支持时任务直接返回错误
 - **文字模型**：支持自定义扩展，兼容 Gemini 和 OpenAI Response
 - **默认模型**：可为文本生图、图生图、反推提示词、Agent 等任务分别设置默认模型
 
@@ -577,7 +577,7 @@ FLYREQ_ACCEPT_NEW_TASKS=false
 创建后 12 小时；前端在拿到结果后会调用 `/ack` 续期 2 分钟，给下载留时间。超过 TTL 服务端删除数据库记录与产物图片。
 
 **New API 已经生成成功，为什么前端仍然显示 504？**
-如果 FlyReq Image 后端通过 Cloudflare 橙云域名访问 New API，长时间无响应的图片生成请求可能被 Cloudflare / Nginx 网关提前截断，New API 控制台仍可能显示上游任务成功。推荐优先让 FlyReq Image 后端使用 New API 的 Docker 内网地址或灰云域名；同时可在对应图片模型中开启“流式图片请求”，让兼容接口通过 `stream=true` 持续返回事件，降低 504 概率。
+如果 FlyReq Image 后端通过 Cloudflare 橙云域名访问 New API，长时间无响应的图片生成请求可能被 Cloudflare / Nginx 网关提前截断，New API 控制台仍可能显示上游任务成功。推荐优先让 FlyReq Image 后端使用 New API 的 Docker 内网地址或灰云域名；同时可在对应图片模型中开启“流式图片请求”，让兼容接口通过 `stream=true` 持续返回事件，降低 504 概率。上游不支持该参数时，任务会直接失败并保留错误信息。
 
 ---
 

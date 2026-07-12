@@ -36,6 +36,7 @@ import { downloadAndStoreImages } from '@/lib/image-downloader';
 import type { StoredJob } from '@/lib/job-store';
 import {
   finalizeCompletedServerTask,
+  getTaskSseMetadata,
   submitTextToImage,
   type SubmitActions,
 } from '@/lib/workspace-task-service';
@@ -121,6 +122,22 @@ beforeEach(() => {
     baseUrl: 'https://api.openai.com',
     protocol: 'openai',
     modelId: 'gpt-image-2',
+  });
+});
+
+describe('getTaskSseMetadata', () => {
+  it('only exposes a tag state for upstream responses confirmed as SSE', () => {
+    expect(getTaskSseMetadata({
+      id: 'task-sse',
+      status: 'completed',
+      result: { images: ['URL:/api/image.png'], sse: { responses: 2, requests: 3 } },
+    })).toEqual({ sseResponses: 2, sseRequests: 3 });
+
+    expect(getTaskSseMetadata({
+      id: 'task-json',
+      status: 'completed',
+      result: { images: ['URL:/api/image.png'] },
+    })).toEqual({});
   });
 });
 

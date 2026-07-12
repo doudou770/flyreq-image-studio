@@ -33,6 +33,11 @@ const CREATE_TASK_TIMEOUT = 60000;
 export type FlyreqTaskMode = 'text-to-image' | 'image-to-image';
 export type FlyreqTaskStatus = 'queued' | '排队中' | 'processing' | 'completed' | 'failed' | 'expired';
 
+export interface FlyreqTaskSseResult {
+  responses: number;
+  requests: number;
+}
+
 export interface CreateFlyreqTaskInput {
   apiKey: string;
   baseUrl: string;
@@ -59,7 +64,7 @@ export interface FlyreqTaskResponse {
   id: string;
   status: FlyreqTaskStatus;
   mode?: FlyreqTaskMode;
-  result?: { images?: string[] };
+  result?: { images?: string[]; sse?: FlyreqTaskSseResult };
   error?: string;
   warning?: string;
   createdAt?: string;

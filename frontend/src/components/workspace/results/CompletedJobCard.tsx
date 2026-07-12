@@ -11,6 +11,7 @@ import { resolveStoredImageRef, revokeBlobUrls } from '@/lib/image-downloader';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
 import { getModelDisplayName, getOutputSizeLabel } from '@/lib/model-capabilities';
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
+import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { isGptImageModel } from '@/lib/gemini-config';
 import {
@@ -307,7 +308,8 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <p className="truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+              <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+              <JobSseBadge job={job} />
               <button
                 onClick={copyPrompt}
                 className="flex-shrink-0 text-muted-foreground transition-colors hover:text-foreground"

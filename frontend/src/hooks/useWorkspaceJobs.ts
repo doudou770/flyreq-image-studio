@@ -14,7 +14,7 @@ import { getDefaultModelId, type ModelId } from '@/lib/gemini-config';
 import { getCompatibleRetryData, type RetryData } from '@/lib/model-capabilities';
 import { classifyFailureFromMessage } from '@/lib/task-failure';
 import { deleteStoredBlobs, revokeBlobUrls } from '@/lib/image-downloader';
-import { retryDownloadCachedImages } from '@/lib/workspace-task-service';
+import { retryDownloadCachedImages, type FailJobOptions } from '@/lib/workspace-task-service';
 
 function isWaitingJob(job: StoredJob): boolean {
   return job.status === 'processing' || job.status === 'queued' || job.status === '排队中';
@@ -110,7 +110,7 @@ export function useWorkspaceJobs() {
     await saveImage(job).catch(() => undefined);
   }, [persistJobs]);
 
-  const failJob = useCallback(async (jobId: string, error: string, options?: { terminal?: boolean; completedAt?: string }) => {
+  const failJob = useCallback(async (jobId: string, error: string, options?: FailJobOptions) => {
     let failedJob: StoredJob | null = null;
     persistJobs(prev => prev.map(job => {
       if (job.id !== jobId) return job;
@@ -123,6 +123,8 @@ export function useWorkspaceJobs() {
         networkError: classification.reason === 'network',
         terminal,
         completed_at: options?.completedAt || new Date().toISOString(),
+        sseResponses: options?.sseResponses ?? job.sseResponses,
+        sseRequests: options?.sseRequests ?? job.sseRequests,
       };
       return failedJob;
     }));

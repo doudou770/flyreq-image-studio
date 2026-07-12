@@ -247,7 +247,6 @@ const XAI_IMAGINE_MAX_REQUESTS_PER_SECOND = 5;
 const XAI_IMAGINE_REQUEST_INTERVAL_MS = 1000 / XAI_IMAGINE_MAX_REQUESTS_PER_SECOND;
 const XAI_IMAGINE_MAX_RETRIES = 1;
 const XAI_IMAGINE_DEFAULT_RETRY_DELAY_MS = 1000;
-const IMAGE_STREAM_UNSUPPORTED_PATTERN = /(?:stream.*(?:unsupported|not supported|unknown|unrecognized|invalid)|(?:unsupported|not supported|unknown|unrecognized|invalid).*stream|stream.*(?:不支持|未知|无效)|(?:不支持|未知|无效).*stream)/i;
 // 开源版：不再硬编码模型列表，由前端通过 protocol 字段指定协议类型
 const VALID_PROTOCOLS = new Set(['google', 'openai']);
 const GPT_IMAGE_QUALITIES = new Set(['auto', 'high', 'medium', 'low']);
@@ -1355,8 +1354,21 @@ function extractImagePayloadFromEventStream(text) {
   throw new Error('响应中无图片数据');
 }
 
+function isImageEventStreamResponse(response) {
+  return String(response.headers.get('content-type') || '').toLowerCase().includes('text/event-stream');
+}
+
+function notifyImageSseResponse(options) {
+  if (typeof options?.onSseConfirmed !== 'function') return;
+  try {
+    options.onSseConfirmed();
+  } catch (error) {
+    console.warn('[image-stream] 记录 SSE 状态失败:', error?.message || error);
+  }
+}
+
 async function parseGptImageResponse(response) {
-  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  const isEventStream = isImageEventStreamResponse(response);
   const responseText = await response.text();
 
   if (!response.ok) {
@@ -1364,7 +1376,7 @@ async function parseGptImageResponse(response) {
     throw new Error(`API 请求失败: ${response.status}${errorText ? ` ${errorText}` : ''}`);
   }
 
-  if (contentType.includes('text/event-stream')) {
+  if (isEventStream) {
     return extractImagePayloadFromEventStream(responseText);
   }
 
@@ -1384,11 +1396,6 @@ async function parseGptImageResponse(response) {
   return extractImagePayload(data);
 }
 
-function isImageStreamUnsupportedError(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  return IMAGE_STREAM_UNSUPPORTED_PATTERN.test(message);
-}
-
 async function requestGptImage(apiKey, request, resolvedSize, options = {}) {
   const baseUrl = options.baseUrl || resolveFlyreqApiBaseUrl();
   const endpoint = request.mode === 'image-to-image'
@@ -1396,22 +1403,19 @@ async function requestGptImage(apiKey, request, resolvedSize, options = {}) {
     : '/v1/images/generations';
   const stream = Boolean(options.stream);
 
+  const response = await fetchWithTimeout(
+    appendProtocolApiPath('openai', baseUrl, endpoint),
+    createGptImageRequestInit(apiKey, request, resolvedSize, { ...options, stream })
+  );
+  const usesSse = isImageEventStreamResponse(response);
+  if (usesSse) notifyImageSseResponse(options);
   try {
-    const response = await fetchWithTimeout(
-      appendProtocolApiPath('openai', baseUrl, endpoint),
-      createGptImageRequestInit(apiKey, request, resolvedSize, { ...options, stream })
-    );
-    return await parseGptImageResponse(response);
+    return { image: await parseGptImageResponse(response), usesSse };
   } catch (error) {
-    if (!stream || !isImageStreamUnsupportedError(error)) {
-      throw error;
+    if (usesSse && error && typeof error === 'object') {
+      error.usesSse = true;
     }
-    console.warn('[image-stream] 上游不支持流式图片请求，已回退非流式:', error?.message || error);
-    const response = await fetchWithTimeout(
-      appendProtocolApiPath('openai', baseUrl, endpoint),
-      createGptImageRequestInit(apiKey, request, resolvedSize, { ...options, stream: false })
-    );
-    return parseGptImageResponse(response);
+    throw error;
   }
 }
 
@@ -1424,7 +1428,16 @@ async function requestXaiImagineImage(apiKey, request, options = {}) {
     await waitForXaiImagineRequestSlot(apiKey);
     const response = await fetchWithTimeout(url, createXaiImagineRequestInit(apiKey, request));
     if (response.status !== 429 || attempt === XAI_IMAGINE_MAX_RETRIES) {
-      return parseGptImageResponse(response);
+      const usesSse = isImageEventStreamResponse(response);
+      if (usesSse) notifyImageSseResponse(options);
+      try {
+        return { image: await parseGptImageResponse(response), usesSse };
+      } catch (error) {
+        if (usesSse && error && typeof error === 'object') {
+          error.usesSse = true;
+        }
+        throw error;
+      }
     }
 
     const retryDelayMs = getRetryAfterDelayMs(response);
@@ -1467,7 +1480,7 @@ async function fetchWithTimeout(url, init) {
   }
 }
 
-async function generateFlyreqImage(apiKey, request) {
+async function generateFlyreqImage(apiKey, request, options = {}) {
   // 开源版：根据前端传入的 protocol 字段路由到对应的 API 协议
   const baseUrlDetails = request.baseUrl
     ? resolveOutboundBaseUrlDetails(request.protocol, request.baseUrl)
@@ -1477,16 +1490,17 @@ async function generateFlyreqImage(apiKey, request) {
     console.info(`[base-url-rewrite] ${request.protocol}: ${baseUrlDetails.originalBaseUrl} -> ${baseUrl}`);
   }
   if (request.imageApiFlavor === 'xai-imagine') {
-    return requestXaiImagineImage(apiKey, request, { baseUrl });
+    return requestXaiImagineImage(apiKey, request, { baseUrl, onSseConfirmed: options.onSseConfirmed });
   }
   if (request.protocol === 'openai') {
     return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {
       baseUrl,
       stream: Boolean(request.streamImages),
+      onSseConfirmed: options.onSseConfirmed,
     });
   }
   // 默认走 Google Gemini 协议
-  return generateFlyreqGeminiImage(apiKey, request, { baseUrl });
+  return { image: await generateFlyreqGeminiImage(apiKey, request, { baseUrl }), usesSse: false };
 }
 
 function extractGeminiImagePayload(data) {
@@ -1559,7 +1573,25 @@ function drainQueue() {
   }
 }
 
+function recordTaskSseResponse(taskId, requestCount) {
+  const task = db.prepare('SELECT status, result_json FROM tasks WHERE id = ?').get(taskId);
+  if (!task || task.status !== 'processing') return;
+
+  const parsedResult = task.result_json ? parseJsonSafely(task.result_json) : null;
+  const result = parsedResult && typeof parsedResult === 'object' && !Array.isArray(parsedResult)
+    ? parsedResult
+    : {};
+  const requests = Number.isInteger(requestCount) && requestCount > 0 ? requestCount : 1;
+  const previousResponses = Number.isInteger(result.sse?.responses) ? result.sse.responses : 0;
+  if (previousResponses >= requests) return;
+
+  result.sse = { responses: previousResponses + 1, requests };
+  db.prepare('UPDATE tasks SET result_json = ? WHERE id = ?').run(JSON.stringify(result), taskId);
+  broadcastTask(taskId);
+}
+
 async function generateSingleImage(apiKey, request, taskId, index) {
+  let usesSse = false;
   try {
     const variantPrompt = typeof request.promptVariants?.[index] === 'string'
       ? request.promptVariants[index].trim()
@@ -1567,7 +1599,11 @@ async function generateSingleImage(apiKey, request, taskId, index) {
     const requestForImage = variantPrompt
       ? { ...request, prompt: `${request.prompt}\n\n本张图要求：\n${variantPrompt}` }
       : request;
-    const image = await generateFlyreqImage(apiKey, requestForImage);
+    const generated = await generateFlyreqImage(apiKey, requestForImage, {
+      onSseConfirmed: () => recordTaskSseResponse(taskId, request.parallelCount),
+    });
+    usesSse = generated.usesSse;
+    const image = generated.image;
     const expanded = image.startsWith('MULTI_URL:') ? image.substring(10).split('|||').map(url => `URL:${url}`) : [image];
     const diskRefs = [];
     for (let subIdx = 0; subIdx < expanded.length; subIdx++) {
@@ -1585,12 +1621,12 @@ async function generateSingleImage(apiKey, request, taskId, index) {
     }
     db.prepare("UPDATE task_items SET status = 'completed', image_data = ?, completed_at = ? WHERE task_id = ? AND item_index = ?")
       .run(JSON.stringify(diskRefs), new Date().toISOString(), taskId, index);
-    return { success: true, images: diskRefs };
+    return { success: true, images: diskRefs, usesSse };
   } catch (error) {
     const message = normalizeError(error);
     db.prepare("UPDATE task_items SET status = 'failed', error = ?, completed_at = ? WHERE task_id = ? AND item_index = ?")
       .run(message, new Date().toISOString(), taskId, index);
-    return { success: false, error: message };
+    return { success: false, error: message, usesSse: usesSse || Boolean(error?.usesSse) };
   }
 }
 
@@ -1627,16 +1663,20 @@ async function runTask(taskId) {
   // 汇总结果
   const images = [];
   const errors = [];
+  let sseResponses = 0;
   for (const result of itemResults) {
     if (result.status === 'fulfilled' && result.value.success) {
       images.push(...result.value.images);
+      if (result.value.usesSse) sseResponses++;
     } else {
       const msg = result.status === 'fulfilled'
         ? result.value.error
         : normalizeError(result.reason);
       errors.push(msg);
+      if (result.status === 'fulfilled' && result.value.usesSse) sseResponses++;
     }
   }
+  const sse = sseResponses > 0 ? { responses: sseResponses, requests: request.parallelCount } : undefined;
 
   const completedAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + TASK_TTL_MS).toISOString();
@@ -1644,11 +1684,11 @@ async function runTask(taskId) {
     const warning = errors.length > 0 ? `${errors.length} 张图片生成失败: ${errors.join('; ')}` : null;
     db.prepare(`
       UPDATE tasks SET status = 'completed', result_json = ?, warning = ?, completed_at = ?, expires_at = ? WHERE id = ?
-    `).run(JSON.stringify({ images }), warning, completedAt, expiresAt, taskId);
+    `).run(JSON.stringify({ images, ...(sse ? { sse } : {}) }), warning, completedAt, expiresAt, taskId);
   } else {
     db.prepare(`
-      UPDATE tasks SET status = 'failed', error = ?, completed_at = ?, expires_at = ? WHERE id = ?
-    `).run(`所有图片生成失败: ${errors.join('; ')}`, completedAt, expiresAt, taskId);
+      UPDATE tasks SET status = 'failed', result_json = ?, error = ?, completed_at = ?, expires_at = ? WHERE id = ?
+    `).run(JSON.stringify({ images: [], ...(sse ? { sse } : {}) }), `所有图片生成失败: ${errors.join('; ')}`, completedAt, expiresAt, taskId);
   }
   cleanupTaskRuntimeState(taskId);
   broadcastTask(taskId);

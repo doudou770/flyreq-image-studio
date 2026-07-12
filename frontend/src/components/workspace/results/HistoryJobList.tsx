@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
 import { getModelDisplayName } from '@/lib/model-capabilities';
 import { CompletedJobCard } from '@/components/workspace/results/CompletedJobCard';
+import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
 import { useI18n } from '@/components/LanguageProvider';
 
 export type GenerationHistoryFilter = 'all' | 'text-to-image' | 'image-to-image';
@@ -70,7 +71,10 @@ const WaitingJobCard = memo(function WaitingJobCard({
           </div>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+          <div className="flex items-center gap-1.5">
+            <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+            <JobSseBadge job={job} />
+          </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{statusText}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {t('history.elapsed', { seconds: elapsedSeconds, model: getModelDisplayName(job.model) })}

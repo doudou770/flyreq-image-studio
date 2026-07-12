@@ -45,11 +45,18 @@ describe('backend GPT Image advanced params forwarding', () => {
     expect(serverSource).toContain('return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {');
   });
 
-  it('supports optional streaming image requests with non-stream fallback', () => {
+  it('supports optional streaming image requests without retrying non-stream requests', () => {
     expect(serverSource).toContain("formData.append('stream', 'true')");
     expect(serverSource).toContain('...(stream ? { stream: true } : {})');
     expect(serverSource).toContain('streamImages: body.streamImages');
     expect(serverSource).toContain('stream: Boolean(request.streamImages)');
-    expect(serverSource).toContain('上游不支持流式图片请求，已回退非流式');
+    expect(serverSource).toContain('function isImageEventStreamResponse(response)');
+    expect(serverSource).toContain('return { image: await parseGptImageResponse(response), usesSse };');
+    expect(serverSource).toContain('let usesSse = false;');
+    expect(serverSource).toContain('usesSse = generated.usesSse;');
+    expect(serverSource).toContain('usesSse: usesSse || Boolean(error?.usesSse)');
+    expect(serverSource).toContain('function recordTaskSseResponse(taskId, requestCount)');
+    expect(serverSource).toContain('onSseConfirmed: () => recordTaskSseResponse(taskId, request.parallelCount)');
+    expect(serverSource).not.toContain('已回退非流式');
   });
 });

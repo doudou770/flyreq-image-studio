@@ -704,7 +704,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                         <div className="flex items-center justify-between rounded-lg border px-3 py-2">
                           <div>
                             <p className="text-sm font-medium">流式图片请求</p>
-                            <p className="text-xs text-muted-foreground">向 OpenAI Images 兼容接口发送 stream=true，可降低 Cloudflare/Nginx 长连接 504 风险；上游不支持时后端会自动回退非流式。</p>
+                            <p className="text-xs text-muted-foreground">向 OpenAI Images 兼容接口发送 stream=true，可降低 Cloudflare/Nginx 长连接 504 风险；上游不支持时会直接报告错误。</p>
                           </div>
                           <Switch
                             checked={Boolean(selectedImageModel.streamImages)}
