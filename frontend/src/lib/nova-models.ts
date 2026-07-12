@@ -1,11 +1,18 @@
 'use client';
 
+import {
+  getTextProviderDescription,
+  isTextProviderProtocol,
+  type TextProviderProtocol,
+} from '@/lib/nova-text-protocol';
+
 export type ProviderProtocol = 'google' | 'openai';
 export type ImageOutputSize = '512' | '1K' | '2K' | '4K';
 export type BuiltinImagePresetId =
   | 'gemini-2.5-flash-image'
   | 'gemini-3-pro-image-preview'
   | 'gemini-3.1-flash-image-preview'
+  | 'gemini-3.1-flash-lite-image'
   | 'gpt-image-2';
 
 export interface ImageModelConfig {
@@ -23,7 +30,7 @@ export interface ImageModelConfig {
 
 export interface TextModelConfig {
   id: string;
-  protocol: ProviderProtocol;
+  protocol: TextProviderProtocol;
   name: string;
   modelId: string;
   apiKey: string;
@@ -76,7 +83,7 @@ export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePre
     name: 'Banana Pro',
     modelId: 'gemini-3-pro-image-preview',
     baseUrl: 'https://generativelanguage.googleapis.com',
-    maxRefImages: 11,
+    maxRefImages: 14,
     maxOutputSize: '4K',
     supportsAdvancedParams: false,
   },
@@ -88,6 +95,16 @@ export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePre
     baseUrl: 'https://generativelanguage.googleapis.com',
     maxRefImages: 14,
     maxOutputSize: '4K',
+    supportsAdvancedParams: false,
+  },
+  'gemini-3.1-flash-lite-image': {
+    id: 'gemini-3.1-flash-lite-image',
+    protocol: 'google',
+    name: 'Banana 2 Lite',
+    modelId: 'gemini-3.1-flash-lite-image',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    maxRefImages: 14,
+    maxOutputSize: '1K',
     supportsAdvancedParams: false,
   },
   'gpt-image-2': {
@@ -109,22 +126,36 @@ export const BUILTIN_IMAGE_PRESET_OPTIONS = Object.values(BUILTIN_IMAGE_PRESETS)
 
 export const DEFAULT_TEXT_MODEL_TEMPLATES = [
   {
-    protocol: 'openai' as const,
+    protocol: 'openai-responses' as const,
     name: 'GPT 5.4 Mini',
     modelId: 'gpt-5.4-mini',
     baseUrl: 'https://api.openai.com',
-    note: 'OpenAI Response',
+    note: getTextProviderDescription('openai-responses'),
   },
   {
-    protocol: 'google' as const,
+    protocol: 'google-gemini' as const,
     name: 'Gemini 2.5 Flash',
     modelId: 'gemini-2.5-flash',
     baseUrl: 'https://generativelanguage.googleapis.com',
-    note: 'Google Gemini',
+    note: getTextProviderDescription('google-gemini'),
+  },
+  {
+    protocol: 'anthropic-messages' as const,
+    name: 'Claude Sonnet',
+    modelId: 'claude-sonnet-4-20250514',
+    baseUrl: 'https://api.anthropic.com',
+    note: getTextProviderDescription('anthropic-messages'),
+  },
+  {
+    protocol: 'openai-chat-completions' as const,
+    name: 'OpenAI Compatible Chat',
+    modelId: 'gpt-4o-mini',
+    baseUrl: 'https://api.openai.com',
+    note: getTextProviderDescription('openai-chat-completions'),
   },
 ];
 
-export function getDefaultTextModelTemplate(protocol: ProviderProtocol) {
+export function getDefaultTextModelTemplate(protocol: TextProviderProtocol) {
   return DEFAULT_TEXT_MODEL_TEMPLATES.find((item) => item.protocol === protocol) || DEFAULT_TEXT_MODEL_TEMPLATES[0];
 }
 
@@ -186,7 +217,7 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
 function normalizeTextModelConfig(raw: Partial<TextModelConfig>): TextModelConfig | null {
   const id = String(raw.id || '').trim();
   if (!id) return null;
-  const protocol = isProviderProtocol(raw.protocol) ? raw.protocol : 'openai';
+  const protocol = isTextProviderProtocol(raw.protocol) ? raw.protocol : 'openai-responses';
   const template = getDefaultTextModelTemplate(protocol);
   return {
     id,
@@ -195,7 +226,7 @@ function normalizeTextModelConfig(raw: Partial<TextModelConfig>): TextModelConfi
     modelId: String(raw.modelId || '').trim(),
     apiKey: String(raw.apiKey || '').trim(),
     baseUrl: String(raw.baseUrl || template.baseUrl).trim(),
-    note: typeof raw.note === 'string' ? raw.note : template.note,
+    note: typeof raw.note === 'string' ? raw.note : (template.note || getTextProviderDescription(protocol)),
   };
 }
 

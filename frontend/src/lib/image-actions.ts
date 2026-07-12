@@ -35,6 +35,7 @@ export interface ImageActionToastDetail {
 
 export interface UseAsImageReferenceDetail {
   refImages: RefImageData[];
+  prompt?: string;
 }
 
 const TOAST_EVENT = 'nova-image-action-toast';
@@ -260,6 +261,36 @@ export async function applyImagePayloadAsReference(payload: ImageActionPayload):
   touchAssetSilently(payload.assetId);
   window.dispatchEvent(new CustomEvent<UseAsImageReferenceDetail>(USE_AS_REFERENCE_EVENT, {
     detail: { refImages: [refImage] },
+  }));
+}
+
+/**
+ * 将标注后的图片（dataURL）连同构造好的提示词一起作为图生图参考发送到生图工作台。
+ * 用于画笔标注编辑器：用户在图片上圈选区域并输入需求后，调用此函数跳转工作台。
+ */
+export async function applyAnnotatedImageAsReference(
+  dataUrl: string,
+  prompt: string,
+  options?: { name?: string; badge?: string },
+): Promise<void> {
+  const file = new File(
+    [dataUrlToBlob(dataUrl)],
+    options?.name || '标注图片.png',
+    { type: 'image/png' },
+  );
+  const optimized = await prepareUploadImage(file);
+  if (optimized.processedSize > MAX_REFERENCE_UPLOAD_SIZE_BYTES) {
+    throw new Error('标注图片压缩后仍超过 10MB，无法作为图生图参考');
+  }
+  const refImage: RefImageData = {
+    id: makeId('anno-ref'),
+    name: optimized.name || options?.name || '标注图片',
+    dataUrl: optimized.dataUrl,
+    mimeType: optimized.mimeType,
+    badge: options?.badge || '标注',
+  };
+  window.dispatchEvent(new CustomEvent<UseAsImageReferenceDetail>(USE_AS_REFERENCE_EVENT, {
+    detail: { refImages: [refImage], prompt },
   }));
 }
 

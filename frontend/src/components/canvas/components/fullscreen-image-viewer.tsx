@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Copy, Download, ImagePlus, Maximize2, Wand2, X } from "lucide-react";
+import { Copy, Download, ImagePlus, Maximize2, Pencil, Wand2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { runImageAction, type ImageActionPayload } from "@/lib/image-actions";
+import { ImageAnnotationEditor } from "@/components/canvas/components/image-annotation-editor";
+import { applyAnnotatedImageAsReference, runImageAction, type ImageActionPayload } from "@/lib/image-actions";
 
 interface FullscreenImageViewerProps {
   src: string;
@@ -23,6 +24,7 @@ export function FullscreenImageViewer({ src, title, onClose, actionPayload }: Fu
   const posRef = useRef({ x: 0, y: 0 });
   const [scaleState, setScaleState] = useState(1);
   const [dragging, setDragging] = useState(false);
+  const [showAnnotationEditor, setShowAnnotationEditor] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const posStart = useRef({ x: 0, y: 0 });
 
@@ -93,6 +95,26 @@ export function FullscreenImageViewer({ src, title, onClose, actionPayload }: Fu
 
   const handleMouseUp = useCallback(() => setDragging(false), []);
 
+  const handleAnnotationSubmit = useCallback((annotatedDataUrl: string, prompt: string) => {
+    setShowAnnotationEditor(false);
+    void applyAnnotatedImageAsReference(annotatedDataUrl, prompt).then(() => {
+      onClose();
+    }).catch((err) => {
+      console.error('标注图片发送失败:', err);
+    });
+  }, [onClose]);
+
+  if (showAnnotationEditor) {
+    return (
+      <ImageAnnotationEditor
+        src={src}
+        title={title}
+        onClose={() => setShowAnnotationEditor(false)}
+        onSubmit={handleAnnotationSubmit}
+      />
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-[9999] select-none bg-background/80 backdrop-blur-sm"
@@ -119,6 +141,10 @@ export function FullscreenImageViewer({ src, title, onClose, actionPayload }: Fu
         <div className="mx-1 h-4 w-px bg-border" />
         <button onClick={resetView} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="重置视图">
           <Maximize2 className="w-4 h-4" />
+        </button>
+        <div className="mx-1 h-4 w-px bg-border" />
+        <button onClick={() => setShowAnnotationEditor(true)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="画笔标注编辑">
+          <Pencil className="w-4 h-4" />
         </button>
         <div className="mx-1 h-4 w-px bg-border" />
         <button onClick={() => { if (actionPayload) void runImageAction('download', actionPayload); }} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载">

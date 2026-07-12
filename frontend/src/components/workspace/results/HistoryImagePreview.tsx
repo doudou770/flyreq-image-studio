@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Download, ImagePlus, Maximize2, Wand2, X } from 'lucide-react';
-import { runImageAction, type ImageActionPayload } from '@/lib/image-actions';
+import { ChevronLeft, ChevronRight, Copy, Download, ImagePlus, Maximize2, Pencil, Wand2, X } from 'lucide-react';
+import { runImageAction, applyAnnotatedImageAsReference, type ImageActionPayload } from '@/lib/image-actions';
+import { ImageAnnotationEditor } from '@/components/canvas/components/image-annotation-editor';
 
 function getDistance(t1: { clientX: number; clientY: number }, t2: { clientX: number; clientY: number }) {
   return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -44,6 +45,7 @@ export function HistoryImagePreview({
   const [currentIndex, setCurrentIndex] = useState(() => clampImageIndex(initialIndex, images.length));
   const [scale, setScaleState] = useState(1);
   const [dragging, setDragging] = useState(false);
+  const [showAnnotationEditor, setShowAnnotationEditor] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const scaleRef = useRef(1);
   const posRef = useRef({ x: 0, y: 0 });
@@ -230,6 +232,26 @@ export function HistoryImagePreview({
     setDragging(false);
   }, []);
 
+  const handleAnnotationSubmit = useCallback((annotatedDataUrl: string, prompt: string) => {
+    setShowAnnotationEditor(false);
+    void applyAnnotatedImageAsReference(annotatedDataUrl, prompt).then(() => {
+      onClose();
+    }).catch((err) => {
+      console.error('标注图片发送失败:', err);
+    });
+  }, [onClose]);
+
+  if (showAnnotationEditor) {
+    return (
+      <ImageAnnotationEditor
+        src={currentSrc}
+        title={alt}
+        onClose={() => setShowAnnotationEditor(false)}
+        onSubmit={handleAnnotationSubmit}
+      />
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-[9999] flex select-none items-center justify-center bg-black/80"
@@ -287,6 +309,10 @@ export function HistoryImagePreview({
         <div className="mx-1 h-4 w-px bg-white/20" />
         <button onClick={resetView} className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white" title="重置视图">
           <Maximize2 className="w-4 h-4" />
+        </button>
+        <div className="mx-1 h-4 w-px bg-white/20" />
+        <button onClick={() => setShowAnnotationEditor(true)} className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white" title="画笔标注编辑">
+          <Pencil className="w-4 h-4" />
         </button>
         {(showDownload && (onDownload || currentPayload)) && (
           <>
