@@ -49,13 +49,30 @@ export interface ImageToImageSubmitInput {
   promptVariants?: string[];
 }
 
+export interface TaskSseMetadata {
+  sseResponses?: number;
+  sseRequests?: number;
+}
+
+export interface FailJobOptions extends TaskSseMetadata {
+  terminal?: boolean;
+  completedAt?: string;
+}
+
 export interface SubmitActions {
   addJob: (job: StoredJob) => void;
   replaceJob: (jobId: string, updater: (job: StoredJob) => StoredJob) => void;
   completeJob: (jobId: string, job: StoredJob) => Promise<void>;
-  failJob: (jobId: string, error: string, options?: { terminal?: boolean; completedAt?: string }) => Promise<void>;
+  failJob: (jobId: string, error: string, options?: FailJobOptions) => Promise<void>;
   /** 可选：返回最新 job 快照，供异步流程避免使用过期闭包。 */
   getJob?: (jobId: string) => StoredJob | undefined;
+}
+
+export function getTaskSseMetadata(task: FlyreqTaskResponse): TaskSseMetadata {
+  const sse = task.result?.sse;
+  if (!sse || !Number.isInteger(sse.responses) || !Number.isInteger(sse.requests)) return {};
+  if (sse.responses < 1 || sse.requests < sse.responses) return {};
+  return { sseResponses: sse.responses, sseRequests: sse.requests };
 }
 
 function buildImageDownloadProgress(items: ImageDownloadProgressItem[]): StoredJob['imageDownloadProgress'] {
@@ -152,9 +169,11 @@ export function buildCompletedJobFromTask(job: StoredJob, task: FlyreqTaskRespon
   const images = task.result?.images || [];
   const createdAt = task.createdAt || job.created_at;
   const completedAt = task.completedAt || new Date().toISOString();
+  const sseMetadata = getTaskSseMetadata(task);
   if (task.status === 'completed' && images.length > 0) {
     return {
       ...job,
+      ...sseMetadata,
       status: 'completed',
       created_at: createdAt,
       completed_at: completedAt,
@@ -167,6 +186,7 @@ export function buildCompletedJobFromTask(job: StoredJob, task: FlyreqTaskRespon
 
   return {
     ...job,
+    ...sseMetadata,
     status: 'failed',
     created_at: createdAt,
     completed_at: completedAt,
@@ -182,6 +202,7 @@ export async function finalizeCompletedServerTask(
   const images = task.result?.images || [];
   const createdAt = task.createdAt || job.created_at;
   const completedAt = task.completedAt || new Date().toISOString();
+  const sseMetadata = getTaskSseMetadata(task);
 
   if (task.status === 'completed' && images.length > 0) {
     const hasUrlImages = images.some(img => img.startsWith('URL:'));
@@ -189,6 +210,7 @@ export async function finalizeCompletedServerTask(
     if (!hasUrlImages) {
       const finalJob: StoredJob = {
         ...job,
+        ...sseMetadata,
         status: 'completed',
         created_at: createdAt,
         completed_at: completedAt,
@@ -208,6 +230,7 @@ export async function finalizeCompletedServerTask(
 
     await actions.completeJob(job.id, {
       ...job,
+      ...sseMetadata,
       status: 'completed',
       created_at: createdAt,
       completed_at: completedAt,
@@ -230,6 +253,7 @@ export async function finalizeCompletedServerTask(
     const allCached = remainingUrlCount === 0;
     const finalJob: StoredJob = {
       ...job,
+      ...sseMetadata,
       status: 'completed',
       created_at: createdAt,
       completed_at: completedAt,
@@ -254,12 +278,13 @@ export async function finalizeCompletedServerTask(
 
   const finalJob: StoredJob = {
     ...job,
+    ...sseMetadata,
     status: 'failed',
     created_at: createdAt,
     completed_at: completedAt,
     error: task.error || (task.status === 'expired' ? '该任务已超出取回时间' : '后端任务失败'),
   };
-  await actions.failJob(job.id, finalJob.error || '任务失败', { completedAt });
+  await actions.failJob(job.id, finalJob.error || '任务失败', { completedAt, ...sseMetadata });
 }
 
 export interface RetryDownloadResult {

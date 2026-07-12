@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { flyreqTaskSocket } from '@/lib/flyreq-task-socket';
-import { finalizeCompletedServerTask, type SubmitActions } from '@/lib/workspace-task-service';
+import { finalizeCompletedServerTask, getTaskSseMetadata, type SubmitActions } from '@/lib/workspace-task-service';
 import type { StoredJob } from '@/lib/job-store';
 import { classifyTaskFailure } from '@/lib/task-failure';
 import type { FlyreqTaskResponse } from '@/lib/flyreq-task-client';
@@ -76,11 +76,16 @@ export function useServerTaskPolling(
           const { terminal } = classifyTaskFailure(task);
           const message = task.error || task.warning
             || (task.status === 'expired' ? '该任务已超出取回时间' : '后端任务失败');
-          void actions.failJob(jobId, message, { terminal, completedAt: task.completedAt });
+          void actions.failJob(jobId, message, { terminal, completedAt: task.completedAt, ...getTaskSseMetadata(task) });
           return;
         }
         if (task.status === 'processing') {
-          actions.replaceJob(jobId, current => ({ ...current, status: 'processing', created_at: task.createdAt || current.created_at }));
+          actions.replaceJob(jobId, current => ({
+            ...current,
+            ...getTaskSseMetadata(task),
+            status: 'processing',
+            created_at: task.createdAt || current.created_at,
+          }));
           return;
         }
         if (task.status === 'queued' || task.status === '排队中') {

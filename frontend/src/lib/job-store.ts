@@ -47,6 +47,10 @@ export interface StoredJob {
   parallelCount?: number;
   promptVariants?: string[];
   images?: string[];
+  /** Number of upstream generation requests that actually returned text/event-stream. */
+  sseResponses?: number;
+  /** Number of upstream generation requests in the server task. */
+  sseRequests?: number;
   serverTaskId?: string;
   serverTaskAcked?: boolean;
   refImages?: RefImageData[];
