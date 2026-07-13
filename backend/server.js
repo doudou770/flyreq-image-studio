@@ -101,6 +101,27 @@ function loadEnvFile() {
 
 loadEnvFile();
 
+/**
+ * 生成带时区标识的 ISO 8601 日志时间戳，便于按时间检索线上日志。
+ * @returns 当前 UTC 时间的 ISO 8601 字符串。
+ */
+function getLogTimestamp() {
+  return new Date().toISOString();
+}
+
+/**
+ * 为后端标准日志统一添加时间戳，同时保留原始 console 的对象和错误输出格式。
+ * @returns 无返回值。
+ */
+function installTimestampedConsole() {
+  for (const method of ['log', 'info', 'warn', 'error']) {
+    const write = console[method].bind(console);
+    console[method] = (...args) => write(`[${getLogTimestamp()}]`, ...args);
+  }
+}
+
+installTimestampedConsole();
+
 function normalizeBaseUrl(url) {
   return String(url || '').trim().replace(/\/+$/, '');
 }

@@ -6,16 +6,16 @@ services:
     container_name: flyreq-image-studio
     # env_file:
     #   - .env
-    # environment:
-    #   NODE_ENV: production
-    #   FLYREQ_TASK_DB: /app/backend/data/flyreq-tasks.sqlite
-    #   FLYREQ_IMAGE_DIR: /app/backend/data/flyreq-images
+    environment:
+      NODE_ENV: production
+      FLYREQ_TASK_DB: /app/backend/data/flyreq-tasks.sqlite
+      FLYREQ_IMAGE_DIR: /app/backend/data/flyreq-images
     ports:
       - "3001:3001"
     volumes:
       - ./data:/app/backend/data
-      - ./blacklist.json:/app/backend/blacklist.json
-      - ./prompts.json:/app/backend/prompts.json
+      - ./blacklist.json:/app/backend/blacklist.json:ro
+      - ./prompts.json:/app/backend/prompts.json:ro
       - ./.env:/app/.env:ro
 #    networks:
 #      - 1panel-network
