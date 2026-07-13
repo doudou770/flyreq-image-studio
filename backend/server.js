@@ -24,7 +24,7 @@ const DEFAULT_LIMIT_CONFIG = {
   maxRequestsPerIp: 20,
   maxRequestsPerApiKey: 20,
   maxPendingTasksPerIp: 20,
-  maxPendingTasksPerApiKey: 10,
+  maxPendingTasksPerApiKey: 20,
   retryAfterSeconds: 30,
 };
 const LIMIT_ERROR_MESSAGES = {
@@ -187,6 +187,22 @@ function resolveOutboundBaseUrlDetails(protocol, baseUrl, env = getRuntimeEnv())
   }
 
   return { baseUrl: normalizedBaseUrl, originalBaseUrl: normalizedBaseUrl, rewritten: false };
+}
+
+/**
+ * 为即将发送到上游的请求解析 Base URL，并记录已实际应用的映射关系。
+ * @param requestType 上游请求类别，用于在日志中区分图片生成、文本代理或模型列表请求。
+ * @param protocol 上游 API 协议标识。
+ * @param baseUrl 用户配置的原始 Base URL。
+ * @param env 运行时环境变量，用于读取 Base URL 映射表。
+ * @returns 包含实际出站 Base URL、原始 Base URL 与映射命中状态的解析结果。
+ */
+function resolveAndLogOutboundBaseUrl(requestType, protocol, baseUrl, env = getRuntimeEnv()) {
+  const details = resolveOutboundBaseUrlDetails(protocol, baseUrl, env);
+  if (details.rewritten) {
+    console.info(`[base-url-rewrite] 状态=已应用 请求=${requestType} 协议=${protocol} 原始Base URL=${details.originalBaseUrl} 映射Base URL=${details.baseUrl}`);
+  }
+  return details;
 }
 
 function getUrlOrigin(value) {
@@ -465,19 +481,31 @@ function enforceRateLimit(req, body, config) {
   return { ip, apiKeyHash };
 }
 
-function enforceQueueCapacity(source, config, requestedSlots = 1) {
+/**
+ * 校验队列和来源维度是否有足够容量接收新任务。
+ * @param source 当前请求的 IP 与 API Key 哈希来源。
+ * @param config 运行时队列与限额配置。
+ * @param requestedSlots 本次请求占用的图片生成槽位数量。
+ * @param requestedTasks 本次请求将创建的独立任务数量。
+ * @returns 无返回值；容量不足时抛出带 HTTP 状态码的异常。
+ */
+function enforceQueueCapacity(source, config, requestedSlots = 1, requestedTasks = 1) {
   const stats = getQueueStats();
   const slotsToReserve = Math.max(1, Math.min(MAX_PARALLEL_COUNT, Math.trunc(Number(requestedSlots)) || 1));
+  const tasksToReserve = Math.max(1, Math.min(MAX_PARALLEL_COUNT, Math.trunc(Number(requestedTasks)) || 1));
   if (stats.pendingCount >= config.maxQueueSize) {
+    throw createHttpError(503, 'QUEUE_FULL', LIMIT_ERROR_MESSAGES.queueFull, config.retryAfterSeconds);
+  }
+  if (stats.pendingCount + tasksToReserve > config.maxQueueSize) {
     throw createHttpError(503, 'QUEUE_FULL', LIMIT_ERROR_MESSAGES.queueFull, config.retryAfterSeconds);
   }
   if (stats.pendingSlots + slotsToReserve > config.maxQueueSize) {
     throw createHttpError(503, 'QUEUE_FULL', LIMIT_ERROR_MESSAGES.queueFull, config.retryAfterSeconds);
   }
-  if (getPendingCountForSource('ip', source.ip) >= config.maxPendingTasksPerIp) {
+  if (getPendingCountForSource('ip', source.ip) + tasksToReserve > config.maxPendingTasksPerIp) {
     throw createHttpError(429, 'TOO_MANY_PENDING_TASKS', LIMIT_ERROR_MESSAGES.tooManyPending, config.retryAfterSeconds);
   }
-  if (getPendingCountForSource('apiKeyHash', source.apiKeyHash) >= config.maxPendingTasksPerApiKey) {
+  if (getPendingCountForSource('apiKeyHash', source.apiKeyHash) + tasksToReserve > config.maxPendingTasksPerApiKey) {
     throw createHttpError(429, 'TOO_MANY_PENDING_TASKS', LIMIT_ERROR_MESSAGES.tooManyPending, config.retryAfterSeconds);
   }
 }
@@ -557,12 +585,21 @@ function getImageExtension(mimeType) {
   return 'png';
 }
 
+/**
+ * 将生成图片写入磁盘，并返回可唯一定位子图的 HTTP 地址。
+ * @param taskId 服务端任务标识。
+ * @param itemIndex 任务内图片请求序号。
+ * @param subIndex 单次上游响应中的子图序号。
+ * @param imageBuffer 待保存的图片二进制数据。
+ * @param mimeType 图片 MIME 类型。
+ * @returns 保存路径与包含子图序号的图片访问地址。
+ */
 function saveImageToDisk(taskId, itemIndex, subIndex, imageBuffer, mimeType) {
   const ext = getImageExtension(mimeType);
   const fileName = `${taskId}-${itemIndex}-${subIndex}.${ext}`;
   const filePath = path.join(IMAGE_DIR, fileName);
   fs.writeFileSync(filePath, imageBuffer);
-  return { filePath, httpUrl: `/api/flyreq/images/${taskId}/${itemIndex}` };
+  return { filePath, httpUrl: `/api/flyreq/images/${taskId}/${itemIndex}/${subIndex}` };
 }
 
 function getImageMimeType(format, fallback = 'image/png') {
@@ -967,18 +1004,15 @@ function validateCreatePayload(body) {
   // 开源版：不做模型级参数规范化，前端负责传递正确的参数，后端无条件透传
 }
 
-function createTask(body, req) {
-  validateCreatePayload(body);
-  const limitConfig = getLimitConfig();
-  if (isRejectNewTasksEnabled()) {
-    throw createHttpError(503, 'SERVER_NOT_ACCEPTING_TASKS', LIMIT_ERROR_MESSAGES.notAcceptingTasks, limitConfig.retryAfterSeconds);
-  }
-  const source = enforceRateLimit(req, body, limitConfig);
-  enforceQueueCapacity(source, limitConfig, body.parallelCount);
-
-  const taskId = randomUUID();
-  const now = new Date().toISOString();
-  const requestForDb = {
+/**
+ * 将请求体转换为可持久化的任务请求快照，避免保存 API Key 和参考图 Base64 数据。
+ * @param body 已校验的创建任务请求体。
+ * @param parallelCount 此服务端任务包含的图片数量。
+ * @param promptVariants 此服务端任务使用的提示词变体列表。
+ * @returns 可写入 tasks.request_json 的安全任务请求对象。
+ */
+function buildTaskRequestForDb(body, parallelCount = body.parallelCount, promptVariants = body.promptVariants) {
+  return {
     mode: body.mode,
     source: 'flyreq',
     protocol: body.protocol,
@@ -995,10 +1029,47 @@ function createTask(body, req) {
     gptImageBackground: body.gptImageBackground,
     gptImageOutputFormat: body.gptImageOutputFormat,
     streamImages: body.streamImages,
-    parallelCount: body.parallelCount,
-    promptVariants: body.promptVariants,
+    parallelCount,
+    promptVariants,
     images: body.images.map(img => ({ mimeType: img.mimeType })),
   };
+}
+
+/**
+ * 为已写入数据库的任务登记内存运行状态与来源待处理计数。
+ * @param taskId 服务端任务标识。
+ * @param apiKey 本次生成所需的 API Key，仅保存在内存。
+ * @param images 原始参考图数据，仅保存在内存。
+ * @param source 限流和待处理统计使用的请求来源。
+ * @returns 无返回值，任务会进入待调度队列。
+ */
+function registerTaskRuntimeState(taskId, apiKey, images, source) {
+  apiKeys.set(taskId, apiKey);
+  taskRefImages.set(taskId, images);
+  taskSources.set(taskId, source);
+  if (source.ip) pendingCountByIp.set(source.ip, (pendingCountByIp.get(source.ip) || 0) + 1);
+  if (source.apiKeyHash) pendingCountByApiKeyHash.set(source.apiKeyHash, (pendingCountByApiKeyHash.get(source.apiKeyHash) || 0) + 1);
+  queue.push(taskId);
+}
+
+/**
+ * 创建一个可包含多张图片的兼容旧接口任务。
+ * @param body 客户端提交的单任务请求体。
+ * @param req 原始 HTTP 请求，用于限流来源识别。
+ * @returns 新建任务的服务端任务标识。
+ */
+function createTask(body, req) {
+  validateCreatePayload(body);
+  const limitConfig = getLimitConfig();
+  if (isRejectNewTasksEnabled()) {
+    throw createHttpError(503, 'SERVER_NOT_ACCEPTING_TASKS', LIMIT_ERROR_MESSAGES.notAcceptingTasks, limitConfig.retryAfterSeconds);
+  }
+  const source = enforceRateLimit(req, body, limitConfig);
+  enforceQueueCapacity(source, limitConfig, body.parallelCount);
+
+  const taskId = randomUUID();
+  const now = new Date().toISOString();
+  const requestForDb = buildTaskRequestForDb(body);
   const tx = db.transaction(() => {
     db.prepare(`
       INSERT INTO tasks (id, status, mode, request_json, created_at)
@@ -1014,17 +1085,59 @@ function createTask(body, req) {
   });
   tx();
 
-  apiKeys.set(taskId, body.apiKey);
-  taskRefImages.set(taskId, body.images);
-  taskSources.set(taskId, source);
-  // 递增 pending 计数
-  if (source.ip) pendingCountByIp.set(source.ip, (pendingCountByIp.get(source.ip) || 0) + 1);
-  if (source.apiKeyHash) pendingCountByApiKeyHash.set(source.apiKeyHash, (pendingCountByApiKeyHash.get(source.apiKeyHash) || 0) + 1);
-  queue.push(taskId);
+  registerTaskRuntimeState(taskId, body.apiKey, body.images, source);
   broadcastTask(taskId);
   broadcastQueueStatus();
   drainQueue();
   return taskId;
+}
+
+/**
+ * 原子创建一组独立单图任务，确保多图请求不会出现部分入队。
+ * @param body 客户端提交的批量图片请求体，parallelCount 表示独立任务数量。
+ * @param req 原始 HTTP 请求，用于限流来源识别。
+ * @returns 按图片序号排序的独立服务端任务标识列表。
+ */
+function createTaskBatch(body, req) {
+  validateCreatePayload(body);
+  const limitConfig = getLimitConfig();
+  if (isRejectNewTasksEnabled()) {
+    throw createHttpError(503, 'SERVER_NOT_ACCEPTING_TASKS', LIMIT_ERROR_MESSAGES.notAcceptingTasks, limitConfig.retryAfterSeconds);
+  }
+  const source = enforceRateLimit(req, body, limitConfig);
+  enforceQueueCapacity(source, limitConfig, body.parallelCount, body.parallelCount);
+
+  const now = new Date().toISOString();
+  const tasks = Array.from({ length: body.parallelCount }, (_, index) => {
+    const promptVariant = body.promptVariants[index];
+    return {
+      taskId: randomUUID(),
+      requestForDb: buildTaskRequestForDb(body, 1, promptVariant ? [promptVariant] : []),
+    };
+  });
+  const tx = db.transaction(() => {
+    const insertTask = db.prepare(`
+      INSERT INTO tasks (id, status, mode, request_json, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const insertItem = db.prepare(`
+      INSERT INTO task_items (task_id, item_index, status, created_at)
+      VALUES (?, ?, ?, ?)
+    `);
+    for (const task of tasks) {
+      insertTask.run(task.taskId, TASK_STATUS.QUEUED, body.mode, JSON.stringify(task.requestForDb), now);
+      insertItem.run(task.taskId, 0, TASK_STATUS.QUEUED, now);
+    }
+  });
+  tx();
+
+  for (const task of tasks) {
+    registerTaskRuntimeState(task.taskId, body.apiKey, body.images, source);
+    broadcastTask(task.taskId);
+  }
+  broadcastQueueStatus();
+  drainQueue();
+  return tasks.map(task => task.taskId);
 }
 
 function roundToMultiple(value, multiple) {
@@ -1483,12 +1596,9 @@ async function fetchWithTimeout(url, init) {
 async function generateFlyreqImage(apiKey, request, options = {}) {
   // 开源版：根据前端传入的 protocol 字段路由到对应的 API 协议
   const baseUrlDetails = request.baseUrl
-    ? resolveOutboundBaseUrlDetails(request.protocol, request.baseUrl)
+    ? resolveAndLogOutboundBaseUrl('图片生成', request.protocol, request.baseUrl)
     : { baseUrl: resolveFlyreqApiBaseUrl(), originalBaseUrl: '', rewritten: false };
   const baseUrl = baseUrlDetails.baseUrl;
-  if (baseUrlDetails.rewritten) {
-    console.info(`[base-url-rewrite] ${request.protocol}: ${baseUrlDetails.originalBaseUrl} -> ${baseUrl}`);
-  }
   if (request.imageApiFlavor === 'xai-imagine') {
     return requestXaiImagineImage(apiKey, request, { baseUrl, onSseConfirmed: options.onSseConfirmed });
   }
@@ -1991,10 +2101,12 @@ async function handleApi(req, res, pathname) {
       return true;
     }
 
-    const imageMatch = apiPathname.match(/^\/api\/flyreq\/images\/([^/]+)\/(\d+)$/);
+    const imageMatch = apiPathname.match(/^\/api\/flyreq\/images\/([^/]+)\/(\d+)(?:\/(\d+))?$/);
     if (req.method === 'GET' && imageMatch) {
       const taskId = imageMatch[1];
       const index = Number(imageMatch[2]);
+      const hasSubIndex = imageMatch[3] !== undefined;
+      const subIndex = hasSubIndex ? Number(imageMatch[3]) : 0;
       if (!/^[a-zA-Z0-9-]+$/.test(taskId)) {
         sendJson(res, 400, { error: 'Invalid taskId' });
         return true;
@@ -2004,15 +2116,15 @@ async function handleApi(req, res, pathname) {
           sendJson(res, 404, { error: 'Not Found' });
           return true;
         }
-        // 常见情况：subIndex=0、扩展名 png/jpg/webp，直接拼路径命中，
+        // 常见情况：扩展名 png/jpg/webp，直接拼路径命中，
         // 避免对整个 IMAGE_DIR 做同步 readdir 全目录扫描（随图片数线性变慢）。
         let filePath = null;
         for (const ext of ['png', 'jpg', 'webp']) {
-          const candidate = path.join(IMAGE_DIR, `${taskId}-${index}-0.${ext}`);
+          const candidate = path.join(IMAGE_DIR, `${taskId}-${index}-${subIndex}.${ext}`);
           if (fs.existsSync(candidate)) { filePath = candidate; break; }
         }
-        // 兜底：扩展名异常或存在多子图（极少）时才回退到目录扫描。
-        if (!filePath) {
+        // 旧任务地址不含 subIndex 时保留首个子图兼容回退；新地址必须精确命中。
+        if (!filePath && !hasSubIndex) {
           const prefix = `${taskId}-${index}-`;
           const files = fs.readdirSync(IMAGE_DIR)
             .filter(name => name.startsWith(prefix))
@@ -2045,7 +2157,7 @@ async function handleApi(req, res, pathname) {
           return true;
         }
 
-        const normalizedBaseUrl = resolveOutboundBaseUrl(protocol, baseUrl);
+        const normalizedBaseUrl = resolveAndLogOutboundBaseUrl('文本代理', protocol, baseUrl).baseUrl;
         let targetUrl;
         const authHeaders = { 'Content-Type': 'application/json' };
 
@@ -2127,7 +2239,7 @@ async function handleApi(req, res, pathname) {
           return true;
         }
 
-        const normalizedBaseUrl = resolveOutboundBaseUrl(protocol, baseUrl);
+        const normalizedBaseUrl = resolveAndLogOutboundBaseUrl('模型列表', protocol, baseUrl).baseUrl;
         const modelsUrl = `${stripProtocolVersionSuffix(protocol, normalizedBaseUrl)}/v1/models`;
         // 模型列表查询只发送 Authorization 头。x-goog-api-key 仅用于 Gemini 生成端点，
         // 对 /v1/models (兼容 OpenAI 格式的 NewAPI 等) 会引发错误或返回空列表。
@@ -2140,6 +2252,14 @@ async function handleApi(req, res, pathname) {
       } catch (error) {
         sendJson(res, 502, { error: normalizeError(error) });
       }
+      return true;
+    }
+
+    // 批量创建端点：请求体包含公共参数和 parallelCount，响应按图片序号返回独立 taskIds。
+    if (req.method === 'POST' && apiPathname === '/api/flyreq/tasks/batch') {
+      const body = await readJsonBody(req);
+      const taskIds = createTaskBatch(body, req);
+      sendJson(res, 202, { taskIds });
       return true;
     }
 

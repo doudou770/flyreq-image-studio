@@ -17,6 +17,8 @@ export interface ImageModelConfig {
   protocol: ProviderProtocol;
   name: string;
   modelId: string;
+  /** 模型 ID 留空时是否使用内置模板的默认模型 ID。 */
+  usesPresetModelId?: boolean;
   apiKey: string;
   baseUrl: string;
   builtinPreset: BuiltinImagePresetId;
@@ -175,7 +177,8 @@ export const DEFAULT_IMAGE_MODELS: ImageModelConfig[] = [
     id: DEFAULT_FLYREQ_IMAGE_MODEL_ID,
     protocol: 'openai',
     name: 'FlyReq',
-    modelId: 'gpt-image-2',
+    modelId: '',
+    usesPresetModelId: true,
     apiKey: '',
     baseUrl: 'https://flyreq.com',
     builtinPreset: 'gpt-image-2',
@@ -194,6 +197,21 @@ export function getImageApiFlavor(model: Pick<ImageModelConfig, 'builtinPreset' 
   return isXaiImaginePresetId(model.builtinPreset) || isXaiImaginePresetId(model.modelId)
     ? 'xai-imagine'
     : undefined;
+}
+
+/**
+ * 解析图片模型实际发送给上游的模型 ID。
+ * @param model 包含模板、用户自定义模型 ID 与预设标记的图片模型配置。
+ * @returns 用户填写的模型 ID；GPT Image 2 留空预设时返回 gpt-image-2。
+ */
+export function getResolvedImageModelId(
+  model: Pick<ImageModelConfig, 'builtinPreset' | 'modelId' | 'usesPresetModelId'>,
+): string {
+  const customModelId = String(model.modelId || '').trim();
+  if (customModelId) return customModelId;
+  return model.usesPresetModelId && model.builtinPreset === 'gpt-image-2'
+    ? BUILTIN_IMAGE_PRESETS['gpt-image-2'].modelId
+    : '';
 }
 
 function isProviderProtocol(value: unknown): value is ProviderProtocol {
@@ -218,6 +236,11 @@ function inferBuiltinPresetId(raw: Partial<ImageModelConfig>): BuiltinImagePrese
   return 'gpt-image-2';
 }
 
+/**
+ * 归一化图片模型配置，并保留 GPT Image 2 的留空预设状态。
+ * @param raw 从本地存储或外部配置读取的原始图片模型数据。
+ * @returns 规范化后的图片模型；缺少内部标识时返回 null。
+ */
 function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelConfig | null {
   const presetId = inferBuiltinPresetId(raw);
   const preset = BUILTIN_IMAGE_PRESETS[presetId];
@@ -228,11 +251,17 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
   const protocol = isXaiImagine
     ? preset.protocol
     : (isProviderProtocol(raw.protocol) ? raw.protocol : preset.protocol);
+  const configuredModelId = String(raw.modelId || '').trim();
+  const usesPresetModelId = presetId === 'gpt-image-2' && (
+    raw.usesPresetModelId === true
+    || (raw.builtinPreset === 'gpt-image-2' && (!configuredModelId || configuredModelId === preset.modelId))
+  );
   return {
     id,
     protocol,
     name: String(raw.name || '').trim(),
-    modelId: String(raw.modelId || '').trim(),
+    modelId: usesPresetModelId ? '' : configuredModelId,
+    usesPresetModelId: usesPresetModelId || undefined,
     apiKey: String(raw.apiKey || '').trim(),
     baseUrl: String(raw.baseUrl || preset.baseUrl).trim(),
     builtinPreset: presetId,
@@ -273,7 +302,11 @@ function isCompleteImageModel(model: Partial<ImageModelConfig>): model is ImageM
   return Boolean(
     model.id
     && model.name?.trim()
-    && model.modelId?.trim()
+    && getResolvedImageModelId({
+      builtinPreset: model.builtinPreset || 'gpt-image-2',
+      modelId: model.modelId || '',
+      usesPresetModelId: model.usesPresetModelId,
+    })
     && model.apiKey?.trim()
     && model.baseUrl?.trim()
   );

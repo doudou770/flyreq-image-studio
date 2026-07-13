@@ -7,7 +7,8 @@ import {
   isPromptOptimizeEnabled,
   setPromptOptimizeEnabled,
 } from '@/lib/settings-storage';
-import { loadRegistry } from '@/lib/flyreq-models';
+import { getResolvedImageModelId, loadRegistry } from '@/lib/flyreq-models';
+import { resolveImageTaskProvider } from '@/lib/flyreq-task-client';
 
 const storage = new Map<string, string>();
 
@@ -82,13 +83,62 @@ describe('settings-storage model availability', () => {
     expect(registry.imageModels[0]).toMatchObject({
       protocol: 'openai',
       name: 'FlyReq',
-      modelId: 'gpt-image-2',
+      modelId: '',
+      usesPresetModelId: true,
       apiKey: '',
       baseUrl: 'https://flyreq.com',
       builtinPreset: 'gpt-image-2',
       maxRefImages: 16,
       maxOutputSize: '4K',
     });
+    expect(getResolvedImageModelId(registry.imageModels[0])).toBe('gpt-image-2');
+    expect(hasConfiguredImageModel()).toBe(false);
+  });
+
+  it('uses gpt-image-2 when a GPT Image 2 configuration leaves its model ID blank', () => {
+    writeRegistry({
+      imageModels: [{
+        id: 'img-gpt-image-2',
+        protocol: 'openai',
+        name: 'GPT Image 2',
+        modelId: '  ',
+        apiKey: 'key',
+        baseUrl: 'https://api.openai.com',
+        builtinPreset: 'gpt-image-2',
+        maxRefImages: 16,
+        maxOutputSize: '4K',
+        supportsAdvancedParams: true,
+      }],
+      textModels: [],
+      defaults: { textToImage: 'img-gpt-image-2', imageToImage: 'img-gpt-image-2' },
+    });
+
+    const [model] = loadRegistry().imageModels;
+    expect(model).toMatchObject({ modelId: '', usesPresetModelId: true });
+    expect(getResolvedImageModelId(model)).toBe('gpt-image-2');
+    expect(resolveImageTaskProvider('img-gpt-image-2').modelId).toBe('gpt-image-2');
+    expect(hasConfiguredImageModel()).toBe(true);
+  });
+
+  it('does not turn a legacy OpenAI configuration without a preset into GPT Image 2', () => {
+    writeRegistry({
+      imageModels: [{
+        id: 'img-legacy-openai',
+        protocol: 'openai',
+        name: 'Legacy OpenAI',
+        modelId: '',
+        apiKey: 'key',
+        baseUrl: 'https://api.example.com',
+        maxRefImages: 1,
+        maxOutputSize: '1K',
+        supportsAdvancedParams: false,
+      }],
+      textModels: [],
+      defaults: { textToImage: 'img-legacy-openai', imageToImage: 'img-legacy-openai' },
+    });
+
+    const [model] = loadRegistry().imageModels;
+    expect(getResolvedImageModelId(model)).toBe('');
     expect(hasConfiguredImageModel()).toBe(false);
   });
 

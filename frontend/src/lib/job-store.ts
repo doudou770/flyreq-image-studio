@@ -47,9 +47,9 @@ export interface StoredJob {
   parallelCount?: number;
   promptVariants?: string[];
   images?: string[];
-  /** Number of upstream generation requests that actually returned text/event-stream. */
+  /** 实际返回 text/event-stream 的上游生成请求数量。 */
   sseResponses?: number;
-  /** Number of upstream generation requests in the server task. */
+  /** 当前服务端任务包含的上游生成请求总数。 */
   sseRequests?: number;
   serverTaskId?: string;
   serverTaskAcked?: boolean;

@@ -1,4 +1,4 @@
-import type { BuiltinImagePresetId, ImageModelConfig, ImageOutputSize, ProviderProtocol } from '@/lib/flyreq-models';
+import { getResolvedImageModelId, type BuiltinImagePresetId, type ImageModelConfig, type ImageOutputSize, type ProviderProtocol } from '@/lib/flyreq-models';
 
 export type ExternalModelConfig = {
   type: 'image';
@@ -135,13 +135,13 @@ export function getExternalImageModelMatch(models: ImageModelConfig[], config: E
   }
 
   const name = config.name?.trim().toLowerCase();
-  const modelId = config.modelId?.trim().toLowerCase();
+  const modelId = (config.modelId || (config.preset === 'gpt-image-2' ? 'gpt-image-2' : '')).trim().toLowerCase();
   const baseUrl = config.baseUrl?.trim().replace(/\/+$/, '').toLowerCase();
   if (!name || !modelId || !baseUrl) return undefined;
 
   return models.find((model) => (
     model.name.trim().toLowerCase() === name
-    && model.modelId.trim().toLowerCase() === modelId
+    && getResolvedImageModelId(model).toLowerCase() === modelId
     && model.baseUrl.trim().replace(/\/+$/, '').toLowerCase() === baseUrl
   ));
 }

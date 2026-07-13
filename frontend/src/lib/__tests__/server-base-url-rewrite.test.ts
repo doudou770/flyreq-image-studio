@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const serverSource = fs.readFileSync(
@@ -18,6 +18,11 @@ function loadRewriteHelpers(): {
     originalBaseUrl: string;
     rewritten: boolean;
   };
+  resolveAndLogOutboundBaseUrl: (requestType: string, protocol: string, baseUrl: string, env: Record<string, string>) => {
+    baseUrl: string;
+    originalBaseUrl: string;
+    rewritten: boolean;
+  };
 } {
   const start = serverSource.indexOf('function normalizeBaseUrl');
   const end = serverSource.indexOf('function resolveImageModelKeyGuide');
@@ -25,7 +30,7 @@ function loadRewriteHelpers(): {
     throw new Error('Unable to locate Base URL rewrite helpers in backend/server.js');
   }
 
-  const source = `${serverSource.slice(start, end)}\nreturn { resolveOutboundBaseUrl, resolveOutboundBaseUrlDetails, appendProtocolApiPath, shouldAuthorizeRemoteImageDownload };`;
+  const source = `${serverSource.slice(start, end)}\nreturn { resolveOutboundBaseUrl, resolveOutboundBaseUrlDetails, resolveAndLogOutboundBaseUrl, appendProtocolApiPath, shouldAuthorizeRemoteImageDownload };`;
   return new Function(source)() as {
     resolveOutboundBaseUrl: (protocol: string, baseUrl: string, env: Record<string, string>) => string;
     appendProtocolApiPath: (protocol: string, baseUrl: string, apiPath: string) => string;
@@ -35,11 +40,16 @@ function loadRewriteHelpers(): {
       originalBaseUrl: string;
       rewritten: boolean;
     };
+    resolveAndLogOutboundBaseUrl: (requestType: string, protocol: string, baseUrl: string, env: Record<string, string>) => {
+      baseUrl: string;
+      originalBaseUrl: string;
+      rewritten: boolean;
+    };
   };
 }
 
 describe('backend Base URL rewrite map', () => {
-  const { resolveOutboundBaseUrl, resolveOutboundBaseUrlDetails, appendProtocolApiPath, shouldAuthorizeRemoteImageDownload } = loadRewriteHelpers();
+  const { resolveOutboundBaseUrl, resolveOutboundBaseUrlDetails, resolveAndLogOutboundBaseUrl, appendProtocolApiPath, shouldAuthorizeRemoteImageDownload } = loadRewriteHelpers();
 
   it('rewrites public OpenAI-compatible URLs to Docker internal URLs', () => {
     const env = {
@@ -81,6 +91,27 @@ describe('backend Base URL rewrite map', () => {
       originalBaseUrl: 'https://flyreq.com/v1',
       rewritten: true,
     });
+  });
+
+  it('logs the original and rewritten Base URL only after a rewrite is applied', () => {
+    const env = {
+      FLYREQ_BASE_URL_REWRITE_MAP: '{"https://flyreq.com":"http://new-api:3000"}',
+    };
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      expect(resolveAndLogOutboundBaseUrl('图片生成', 'openai', 'https://flyreq.com/v1', env)).toMatchObject({
+        baseUrl: 'http://new-api:3000/v1',
+        originalBaseUrl: 'https://flyreq.com/v1',
+        rewritten: true,
+      });
+      expect(info).toHaveBeenCalledWith('[base-url-rewrite] 状态=已应用 请求=图片生成 协议=openai 原始Base URL=https://flyreq.com/v1 映射Base URL=http://new-api:3000/v1');
+
+      resolveAndLogOutboundBaseUrl('图片生成', 'openai', 'https://other.example.com/v1', env);
+      expect(info).toHaveBeenCalledTimes(1);
+    } finally {
+      info.mockRestore();
+    }
   });
 
   it('does not duplicate protocol API prefixes when building URLs', () => {
