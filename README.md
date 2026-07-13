@@ -512,7 +512,7 @@ docker push ghcr.io/doudou770/flyreq-image-studio:latest
 | `FLYREQ_RATE_LIMIT_MAX_REQUESTS_PER_IP` | 否 | `20` | 单 IP 在一个窗口内最多创建多少个任务 |
 | `FLYREQ_RATE_LIMIT_MAX_REQUESTS_PER_API_KEY` | 否 | `20` | 单 API Key 在一个窗口内最多创建多少个任务 |
 | `FLYREQ_MAX_PENDING_TASKS_PER_IP` | 否 | `20` | 单 IP 最多同时拥有多少个待处理任务 |
-| `FLYREQ_MAX_PENDING_TASKS_PER_API_KEY` | 否 | `10` | 单 API Key 最多同时拥有多少个待处理任务 |
+| `FLYREQ_MAX_PENDING_TASKS_PER_API_KEY` | 否 | `20` | 单 API Key 最多同时拥有多少个待处理任务 |
 | `FLYREQ_RATE_LIMIT_RETRY_AFTER_SECONDS` | 否 | `30` | 队列满/限流时响应头 `Retry-After` 秒数 |
 | `FLYREQ_IMAGE_DIR` | 否 | `backend/flyreq-images/` | 任务产物落盘目录 |
 | `FLYREQ_BASE_URL_REWRITE_MAP` | 否 | 空 | Base URL 出站改写表；例如 `{"https://flyreq.com":"http://new-api:3000"}` |
@@ -540,7 +540,7 @@ docker push ghcr.io/doudou770/flyreq-image-studio:latest
 | `GET` | `/api/flyreq/prompts` | 提示词广场内容 |
 | `GET` | `/api/flyreq/blacklist` | 敏感词列表 |
 | `GET` | `/api/flyreq/config` | 前端配置（如 `promptGalleryMode`） |
-| `GET` | `/api/flyreq/images/:taskId/:index` | 任务产物图片 |
+| `GET` | `/api/flyreq/images/:taskId/:index/:subIndex` | 任务产物图片；省略 `subIndex` 时读取第 0 张 |
 | `WS` | `/api/flyreq/ws` | 实时任务 / 队列订阅 |
 
 ### 任务状态

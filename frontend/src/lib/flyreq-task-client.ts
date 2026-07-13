@@ -4,6 +4,7 @@ import {
   getCompleteImageModels,
   getCompleteTextModels,
   getImageModelById,
+  getResolvedImageModelId,
   getTextModelById,
   loadRegistry,
   getImageApiFlavor,
@@ -111,6 +112,10 @@ interface CreateTaskResponse {
   taskId?: string;
 }
 
+interface CreateTaskBatchResponse {
+  taskIds?: string[];
+}
+
 function getObjectProperty(data: unknown, key: string): unknown {
   return typeof data === 'object' && data !== null && key in data
     ? (data as Record<string, unknown>)[key]
@@ -200,6 +205,11 @@ async function fetchWithTimeout(
   }
 }
 
+/**
+ * 创建一个兼容旧调用方的服务端生图任务。
+ * @param input 单个服务端任务的完整请求参数。
+ * @returns 新建服务端任务标识。
+ */
 export async function createFlyreqTask(input: CreateFlyreqTaskInput): Promise<string> {
   const response = await fetchWithTimeout('/api/flyreq/tasks', {
     method: 'POST',
@@ -209,6 +219,24 @@ export async function createFlyreqTask(input: CreateFlyreqTaskInput): Promise<st
   const data = await parseTaskResponse<CreateTaskResponse>(response);
   if (!data?.taskId) throw new Error('创建任务失败：后端未返回任务 ID');
   return data.taskId;
+}
+
+/**
+ * 原子创建多张图片对应的独立服务端任务。
+ * @param input 多图提交参数，parallelCount 表示需要创建的独立任务数量。
+ * @returns 按图片序号排序的服务端任务标识列表。
+ */
+export async function createFlyreqTasks(input: CreateFlyreqTaskInput): Promise<string[]> {
+  const response = await fetchWithTimeout('/api/flyreq/tasks/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }, CREATE_TASK_TIMEOUT);
+  const data = await parseTaskResponse<CreateTaskBatchResponse>(response);
+  if (!Array.isArray(data?.taskIds) || data.taskIds.length !== input.parallelCount || data.taskIds.some(taskId => !taskId)) {
+    throw new Error('创建任务失败：后端未返回完整任务 ID 列表');
+  }
+  return data.taskIds;
 }
 
 export async function checkModelsAvailability(
@@ -225,7 +253,7 @@ export async function checkModelsAvailability(
         protocol: model.protocol,
         baseUrl: model.baseUrl,
         apiKey: model.apiKey,
-        modelId: model.modelId,
+        modelId: getResolvedImageModelId(model),
       })),
       ...completeTextModels.map((model) => ({
         id: model.id,
@@ -302,7 +330,7 @@ export function resolveImageTaskProvider(modelId: string): { apiKey: string; bas
     apiKey: model.apiKey,
     baseUrl: normalizedBaseUrl,
     protocol: model.protocol,
-    modelId: model.modelId,
+    modelId: getResolvedImageModelId(model),
     imageApiFlavor: getImageApiFlavor(model),
     streamImages: model.protocol === 'openai' ? Boolean(model.streamImages) : false,
   };

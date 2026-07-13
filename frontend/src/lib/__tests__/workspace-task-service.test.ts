@@ -31,12 +31,13 @@ vi.hoisted(() => {
   });
 });
 
-import { ackFlyreqTask, createFlyreqTask, resolveImageTaskProvider, type FlyreqTaskResponse } from '@/lib/flyreq-task-client';
+import { ackFlyreqTask, createFlyreqTasks, resolveImageTaskProvider, type FlyreqTaskResponse } from '@/lib/flyreq-task-client';
 import { downloadAndStoreImages } from '@/lib/image-downloader';
 import type { StoredJob } from '@/lib/job-store';
 import {
   finalizeCompletedServerTask,
   getTaskSseMetadata,
+  submitImageToImage,
   submitTextToImage,
   type SubmitActions,
 } from '@/lib/workspace-task-service';
@@ -45,7 +46,7 @@ vi.mock('@/lib/flyreq-task-client', async importOriginal => {
   return {
     ...actual,
     ackFlyreqTask: vi.fn(),
-    createFlyreqTask: vi.fn(),
+    createFlyreqTasks: vi.fn(),
     resolveImageTaskProvider: vi.fn(),
   };
 });
@@ -59,7 +60,7 @@ vi.mock('@/lib/image-downloader', async importOriginal => {
 });
 
 const mockedAckFlyreqTask = vi.mocked(ackFlyreqTask);
-const mockedCreateFlyreqTask = vi.mocked(createFlyreqTask);
+const mockedCreateFlyreqTasks = vi.mocked(createFlyreqTasks);
 const mockedDownloadAndStoreImages = vi.mocked(downloadAndStoreImages);
 const mockedResolveImageTaskProvider = vi.mocked(resolveImageTaskProvider);
 
@@ -113,8 +114,10 @@ function createActions(initialJob: StoredJob): { actions: SubmitActions; getJob:
 beforeEach(() => {
   mockedAckFlyreqTask.mockReset();
   mockedAckFlyreqTask.mockResolvedValue(undefined);
-  mockedCreateFlyreqTask.mockReset();
-  mockedCreateFlyreqTask.mockResolvedValue('task-advanced-1');
+  mockedCreateFlyreqTasks.mockReset();
+  mockedCreateFlyreqTasks.mockImplementation(async input => (
+    Array.from({ length: input.parallelCount }, (_, index) => `task-advanced-${index + 1}`)
+  ));
   mockedDownloadAndStoreImages.mockReset();
   mockedResolveImageTaskProvider.mockReset();
   mockedResolveImageTaskProvider.mockReturnValue({
@@ -142,7 +145,7 @@ describe('getTaskSseMetadata', () => {
 });
 
 describe('submitTextToImage', () => {
-  it('passes GPT Image advanced params into createFlyreqTask payload', async () => {
+  it('passes GPT Image advanced params into the batch task payload', async () => {
     const job = makeJob();
     const { actions, getJob } = createActions(job);
     mockedResolveImageTaskProvider.mockReturnValue({
@@ -166,7 +169,7 @@ describe('submitTextToImage', () => {
       parallelCount: 1,
     }, actions, vi.fn());
 
-    expect(mockedCreateFlyreqTask).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockedCreateFlyreqTasks).toHaveBeenCalledWith(expect.objectContaining({
       apiKey: 'test-api-key',
       mode: 'text-to-image',
       model: 'gpt-image-2',
@@ -185,7 +188,7 @@ describe('submitTextToImage', () => {
     expect(getJob().serverTaskId).toBe('task-advanced-1');
   });
 
-  it('passes per-image prompt variants into task payload and job history', async () => {
+  it('splits text-to-image outputs into independent tasks with their own prompt variant', async () => {
     const job = makeJob();
     const { actions } = createActions(job);
     const promptVariants = ['正面半身', '侧身站姿', ''];
@@ -204,14 +207,22 @@ describe('submitTextToImage', () => {
       promptVariants,
     }, actions, vi.fn());
 
-    expect(mockedCreateFlyreqTask).toHaveBeenCalledWith(expect.objectContaining({
-      parallelCount: 3,
-      promptVariants,
-    }));
-    expect(actions.addJob).toHaveBeenCalledWith(expect.objectContaining({
-      parallelCount: 3,
-      promptVariants,
-    }));
+    expect(mockedCreateFlyreqTasks).toHaveBeenCalledTimes(1);
+    expect(mockedCreateFlyreqTasks.mock.calls.map(([payload]) => ({
+      parallelCount: payload.parallelCount,
+      promptVariants: payload.promptVariants,
+    }))).toEqual([
+      { parallelCount: 3, promptVariants },
+    ]);
+    expect(actions.addJob).toHaveBeenCalledTimes(3);
+    expect(actions.addJob.mock.calls.map(([createdJob]) => ({
+      parallelCount: createdJob.parallelCount,
+      promptVariants: createdJob.promptVariants,
+    }))).toEqual([
+      { parallelCount: 1, promptVariants: undefined },
+      { parallelCount: 1, promptVariants: ['侧身站姿'] },
+      { parallelCount: 1, promptVariants: ['正面半身'] },
+    ]);
   });
 
   it('passes the Grok Imagine API flavor into the server task payload', async () => {
@@ -238,13 +249,46 @@ describe('submitTextToImage', () => {
       parallelCount: 1,
     }, actions, vi.fn());
 
-    expect(mockedCreateFlyreqTask).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockedCreateFlyreqTasks).toHaveBeenCalledWith(expect.objectContaining({
       baseUrl: 'https://api.x.ai',
       model: 'grok-imagine-image',
       imageApiFlavor: 'xai-imagine',
       outputSize: '2K',
       aspectRatio: '19.5:9',
     }));
+  });
+});
+
+describe('submitImageToImage', () => {
+  it('splits image-to-image outputs into independent tasks', async () => {
+    const job = makeJob({ mode: 'image-to-image' });
+    const { actions } = createActions(job);
+
+    await submitImageToImage({
+      prompt: '将参考图改为水彩画',
+      files: [{ id: 'ref-1', name: 'reference.png', dataUrl: 'data:image/png;base64,ZmFrZQ==', mimeType: 'image/png' }],
+      outputSize: '1K',
+      aspectRatio: '1:1',
+      temperature: 1,
+      model: 'flyreq-gpt-image-2',
+      gptImageQuality: 'auto',
+      gptImageStyle: 'auto',
+      gptImageBackground: 'auto',
+      gptImageOutputFormat: 'png',
+      parallelCount: 2,
+      promptVariants: ['水彩风', '铅笔素描'],
+    }, actions, vi.fn());
+
+    expect(mockedCreateFlyreqTasks).toHaveBeenCalledTimes(1);
+    expect(mockedCreateFlyreqTasks.mock.calls.map(([payload]) => ({
+      mode: payload.mode,
+      parallelCount: payload.parallelCount,
+      promptVariants: payload.promptVariants,
+      imageCount: payload.images.length,
+    }))).toEqual([
+      { mode: 'image-to-image', parallelCount: 2, promptVariants: ['水彩风', '铅笔素描'], imageCount: 1 },
+    ]);
+    expect(actions.addJob).toHaveBeenCalledTimes(2);
   });
 });
 

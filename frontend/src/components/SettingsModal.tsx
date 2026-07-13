@@ -43,6 +43,7 @@ import {
   getCompleteImageModels,
   getCompleteTextModels,
   getImageModelOutputSizes,
+  getResolvedImageModelId,
   isXaiImaginePresetId,
   loadRegistry,
   saveRegistry,
@@ -78,6 +79,10 @@ function cloneTextModel(model: TextModelConfig): TextModelConfig {
   return { ...model };
 }
 
+/**
+ * 创建新增图片模型的默认草稿。
+ * @returns 使用 GPT Image 2 留空预设的未完成配置。
+ */
 function createImageModelDraft(): ImageModelConfig {
   const preset = BUILTIN_IMAGE_PRESETS['gpt-image-2'];
   return {
@@ -85,6 +90,7 @@ function createImageModelDraft(): ImageModelConfig {
     protocol: preset.protocol,
     name: '',
     modelId: '',
+    usesPresetModelId: true,
     apiKey: '',
     baseUrl: preset.baseUrl,
     builtinPreset: preset.id,
@@ -107,11 +113,14 @@ function createExternalImageModelDraft(config: ExternalModelConfig): ImageModelC
   const isXaiImagine = isXaiImaginePresetId(preset.id);
   const protocol = isXaiImagine ? preset.protocol : (config.protocol || preset.protocol);
   const isGptImage = preset.id === 'gpt-image-2';
+  const configuredModelId = config.modelId?.trim() || '';
+  const usesPresetModelId = isGptImage && (!configuredModelId || configuredModelId === preset.modelId);
   return {
     id: config.modelKey || generateModelId('img'),
     protocol,
     name: config.name || preset.name,
-    modelId: config.modelId || preset.modelId,
+    modelId: usesPresetModelId ? '' : (configuredModelId || preset.modelId),
+    usesPresetModelId: usesPresetModelId || undefined,
     apiKey: config.apiKey || '',
     baseUrl: config.baseUrl || preset.baseUrl,
     builtinPreset: preset.id,
@@ -127,12 +136,15 @@ function patchImageModelFromExternal(model: ImageModelConfig, config: ExternalMo
   const isXaiImagine = isXaiImaginePresetId(preset.id);
   const protocol = isXaiImagine ? preset.protocol : (config.protocol || model.protocol || preset.protocol);
   const isGptImage = preset.id === 'gpt-image-2';
+  const configuredModelId = config.modelId?.trim() || model.modelId.trim();
+  const usesPresetModelId = isGptImage && (!configuredModelId || configuredModelId === preset.modelId);
   return {
     ...model,
     protocol,
     builtinPreset: preset.id,
     name: config.name || model.name || preset.name,
-    modelId: config.modelId || model.modelId || preset.modelId,
+    modelId: usesPresetModelId ? '' : (configuredModelId || preset.modelId),
+    usesPresetModelId: usesPresetModelId || undefined,
     baseUrl: config.baseUrl || model.baseUrl || preset.baseUrl,
     apiKey: config.apiKey ?? model.apiKey,
     maxRefImages: isXaiImagine ? preset.maxRefImages : (config.maxRefImages || model.maxRefImages || preset.maxRefImages),
@@ -158,7 +170,7 @@ function createTextModelDraft(): TextModelConfig {
 }
 
 function isCompleteImageModel(model: ImageModelConfig): boolean {
-  return Boolean(model.name.trim() && model.modelId.trim() && model.apiKey.trim() && model.baseUrl.trim());
+  return Boolean(model.name.trim() && getResolvedImageModelId(model) && model.apiKey.trim() && model.baseUrl.trim());
 }
 
 function isCompleteTextModel(model: TextModelConfig): boolean {
@@ -314,6 +326,12 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
     setSelectedImageModelId(draft.id);
   };
 
+  /**
+   * 更新指定图片模型，并同步模板所约束的默认参数。
+   * @param id 待更新图片模型的内部标识。
+   * @param patch 用户本次修改的字段集合。
+   * @returns 无返回值；通过状态更新渲染最新配置。
+   */
   const handleUpdateImageModel = (id: string, patch: Partial<ImageModelConfig>) => {
     setImageModels((prev) => prev.map((model) => {
       if (model.id !== id) return model;
@@ -322,12 +340,16 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
         const preset = BUILTIN_IMAGE_PRESETS[patch.builtinPreset];
         next.protocol = preset.protocol;
         next.name = preset.name;
-        next.modelId = preset.modelId;
+        next.modelId = preset.id === 'gpt-image-2' ? '' : preset.modelId;
+        next.usesPresetModelId = preset.id === 'gpt-image-2';
         next.baseUrl = preset.baseUrl;
         next.maxRefImages = preset.maxRefImages;
         next.maxOutputSize = preset.maxOutputSize;
         next.supportsAdvancedParams = preset.supportsAdvancedParams;
         next.streamImages = preset.streamImages;
+      }
+      if ('modelId' in patch && next.builtinPreset === 'gpt-image-2') {
+        next.usesPresetModelId = !next.modelId.trim();
       }
       if (isXaiImaginePresetId(next.builtinPreset)) {
         const preset = BUILTIN_IMAGE_PRESETS[next.builtinPreset];
@@ -645,7 +667,17 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">模型 ID</label>
-                      <Input value={selectedImageModel.modelId} onChange={(event) => handleUpdateImageModel(selectedImageModel.id, { modelId: event.target.value })} />
+                      <Input
+                        value={selectedImageModel.modelId}
+                        placeholder={selectedImageModel.builtinPreset === 'gpt-image-2' ? 'gpt-image-2' : undefined}
+                        onChange={(event) => handleUpdateImageModel(selectedImageModel.id, {
+                          modelId: event.target.value,
+                          usesPresetModelId: selectedImageModel.builtinPreset === 'gpt-image-2' && !event.target.value.trim(),
+                        })}
+                      />
+                      {selectedImageModel.builtinPreset === 'gpt-image-2' && (
+                        <p className="text-xs text-muted-foreground">当前预设为 gpt-image-2。留空时使用该预设；填写后使用自定义模型 ID。</p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">Base URL</label>
