@@ -35,6 +35,7 @@ import { Switch } from '@/components/ui/switch';
 import { BackupProgress } from '@/components/BackupProgress';
 import {
   BUILTIN_IMAGE_PRESETS,
+  applyBuiltinImagePresetModelIds,
   BUILTIN_IMAGE_PRESET_OPTIONS,
   DEFAULT_DEFAULTS,
   DEFAULT_TEXT_MODEL_TEMPLATES,
@@ -81,7 +82,7 @@ function cloneTextModel(model: TextModelConfig): TextModelConfig {
 
 /**
  * 创建新增图片模型的默认草稿。
- * @returns 使用 GPT Image 2 留空预设的未完成配置。
+ * @returns 使用默认内置预设的未完成配置。
  */
 function createImageModelDraft(): ImageModelConfig {
   const preset = BUILTIN_IMAGE_PRESETS['gpt-image-2'];
@@ -114,7 +115,7 @@ function createExternalImageModelDraft(config: ExternalModelConfig): ImageModelC
   const protocol = isXaiImagine ? preset.protocol : (config.protocol || preset.protocol);
   const isGptImage = preset.id === 'gpt-image-2';
   const configuredModelId = config.modelId?.trim() || '';
-  const usesPresetModelId = isGptImage && (!configuredModelId || configuredModelId === preset.modelId);
+  const usesPresetModelId = !configuredModelId || configuredModelId === preset.modelId;
   return {
     id: config.modelKey || generateModelId('img'),
     protocol,
@@ -136,8 +137,10 @@ function patchImageModelFromExternal(model: ImageModelConfig, config: ExternalMo
   const isXaiImagine = isXaiImaginePresetId(preset.id);
   const protocol = isXaiImagine ? preset.protocol : (config.protocol || model.protocol || preset.protocol);
   const isGptImage = preset.id === 'gpt-image-2';
-  const configuredModelId = config.modelId?.trim() || model.modelId.trim();
-  const usesPresetModelId = isGptImage && (!configuredModelId || configuredModelId === preset.modelId);
+  const configuredModelId = config.modelId === undefined
+    ? model.modelId.trim()
+    : config.modelId.trim();
+  const usesPresetModelId = !configuredModelId || configuredModelId === preset.modelId;
   return {
     ...model,
     protocol,
@@ -256,8 +259,9 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
 
     fetch('/api/flyreq/config', { cache: 'no-store' })
       .then((res) => res.json())
-      .then((data: { imageModelKeyGuide?: Partial<ImageModelKeyGuide> }) => {
+      .then((data: { imageModelKeyGuide?: Partial<ImageModelKeyGuide>; imagePresetModelIds?: Parameters<typeof applyBuiltinImagePresetModelIds>[0] }) => {
         if (cancelled) return;
+        applyBuiltinImagePresetModelIds(data.imagePresetModelIds);
         const guide = data.imageModelKeyGuide || {};
         setImageModelKeyGuide({
           title: guide.title || IMAGE_MODEL_KEY_GUIDE.title,
@@ -340,15 +344,15 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
         const preset = BUILTIN_IMAGE_PRESETS[patch.builtinPreset];
         next.protocol = preset.protocol;
         next.name = preset.name;
-        next.modelId = preset.id === 'gpt-image-2' ? '' : preset.modelId;
-        next.usesPresetModelId = preset.id === 'gpt-image-2';
+        next.modelId = '';
+        next.usesPresetModelId = true;
         next.baseUrl = preset.baseUrl;
         next.maxRefImages = preset.maxRefImages;
         next.maxOutputSize = preset.maxOutputSize;
         next.supportsAdvancedParams = preset.supportsAdvancedParams;
         next.streamImages = preset.streamImages;
       }
-      if ('modelId' in patch && next.builtinPreset === 'gpt-image-2') {
+      if ('modelId' in patch) {
         next.usesPresetModelId = !next.modelId.trim();
       }
       if (isXaiImaginePresetId(next.builtinPreset)) {
@@ -669,15 +673,13 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                       <label className="text-xs text-muted-foreground">模型 ID</label>
                       <Input
                         value={selectedImageModel.modelId}
-                        placeholder={selectedImageModel.builtinPreset === 'gpt-image-2' ? 'gpt-image-2' : undefined}
+                        placeholder={BUILTIN_IMAGE_PRESETS[selectedImageModel.builtinPreset].modelId}
                         onChange={(event) => handleUpdateImageModel(selectedImageModel.id, {
                           modelId: event.target.value,
-                          usesPresetModelId: selectedImageModel.builtinPreset === 'gpt-image-2' && !event.target.value.trim(),
+                          usesPresetModelId: !event.target.value.trim(),
                         })}
                       />
-                      {selectedImageModel.builtinPreset === 'gpt-image-2' && (
-                        <p className="text-xs text-muted-foreground">当前预设为 gpt-image-2。留空时使用该预设；填写后使用自定义模型 ID。</p>
-                      )}
+                      <p className="text-xs text-muted-foreground">留空时使用当前预设的默认模型 ID；填写后使用自定义模型 ID。</p>
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">Base URL</label>

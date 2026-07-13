@@ -1,15 +1,9 @@
 'use client';
 
-export type ProviderProtocol = 'google' | 'openai';
-export type ImageOutputSize = '512' | '1K' | '2K' | '4K';
-export type BuiltinImagePresetId =
-  | 'gemini-2.5-flash-image'
-  | 'gemini-3-pro-image-preview'
-  | 'gemini-3.1-flash-image-preview'
-  | 'gemini-3.1-flash-lite-image'
-  | 'gpt-image-2'
-  | 'grok-imagine-image'
-  | 'grok-imagine-image-quality';
+import { BUILTIN_IMAGE_PRESETS } from '@/lib/builtin-image-presets';
+export { BUILTIN_IMAGE_PRESETS, applyBuiltinImagePresetModelIds } from '@/lib/builtin-image-presets';
+export type { BuiltinImagePreset, BuiltinImagePresetId, BuiltinImagePresetModelIds, ImageOutputSize, ProviderProtocol } from '@/lib/builtin-image-presets';
+import type { BuiltinImagePresetId, ImageOutputSize, ProviderProtocol } from '@/lib/builtin-image-presets';
 
 export type ImageApiFlavor = 'xai-imagine';
 
@@ -39,18 +33,6 @@ export interface TextModelConfig {
   note?: string;
 }
 
-export interface BuiltinImagePreset {
-  id: BuiltinImagePresetId;
-  protocol: ProviderProtocol;
-  name: string;
-  modelId: string;
-  baseUrl: string;
-  maxRefImages: number;
-  maxOutputSize: ImageOutputSize;
-  supportsAdvancedParams: boolean;
-  streamImages?: boolean;
-}
-
 export interface DefaultModels {
   textToImage: string;
   imageToImage: string;
@@ -68,86 +50,6 @@ export interface FlyreqModelRegistry {
 
 const REGISTRY_KEY = 'flyreq-model-registry';
 const DEFAULT_FLYREQ_IMAGE_MODEL_ID = 'flyreq-gpt-image-2';
-
-export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePreset> = {
-  'gemini-2.5-flash-image': {
-    id: 'gemini-2.5-flash-image',
-    protocol: 'google',
-    name: 'Banana',
-    modelId: 'gemini-2.5-flash-image',
-    baseUrl: 'https://generativelanguage.googleapis.com',
-    maxRefImages: 3,
-    maxOutputSize: '1K',
-    supportsAdvancedParams: false,
-    streamImages: false,
-  },
-  'gemini-3-pro-image-preview': {
-    id: 'gemini-3-pro-image-preview',
-    protocol: 'google',
-    name: 'Banana Pro',
-    modelId: 'gemini-3-pro-image-preview',
-    baseUrl: 'https://generativelanguage.googleapis.com',
-    maxRefImages: 14,
-    maxOutputSize: '4K',
-    supportsAdvancedParams: false,
-    streamImages: false,
-  },
-  'gemini-3.1-flash-image-preview': {
-    id: 'gemini-3.1-flash-image-preview',
-    protocol: 'google',
-    name: 'Banana 2',
-    modelId: 'gemini-3.1-flash-image-preview',
-    baseUrl: 'https://generativelanguage.googleapis.com',
-    maxRefImages: 14,
-    maxOutputSize: '4K',
-    supportsAdvancedParams: false,
-    streamImages: false,
-  },
-  'gpt-image-2': {
-    id: 'gpt-image-2',
-    protocol: 'openai',
-    name: 'GPT Image 2',
-    modelId: 'gpt-image-2',
-    baseUrl: 'https://api.openai.com',
-    maxRefImages: 16,
-    maxOutputSize: '4K',
-    supportsAdvancedParams: true,
-    streamImages: false,
-  },
-  'gemini-3.1-flash-lite-image': {
-    id: 'gemini-3.1-flash-lite-image',
-    protocol: 'google',
-    name: 'Banana 2 Lite',
-    modelId: 'gemini-3.1-flash-lite-image',
-    baseUrl: 'https://generativelanguage.googleapis.com',
-    maxRefImages: 14,
-    maxOutputSize: '1K',
-    supportsAdvancedParams: false,
-    streamImages: false,
-  },
-  'grok-imagine-image': {
-    id: 'grok-imagine-image',
-    protocol: 'openai',
-    name: 'Grok Imagine',
-    modelId: 'grok-imagine-image',
-    baseUrl: 'https://api.x.ai',
-    maxRefImages: 1,
-    maxOutputSize: '2K',
-    supportsAdvancedParams: false,
-    streamImages: false,
-  },
-  'grok-imagine-image-quality': {
-    id: 'grok-imagine-image-quality',
-    protocol: 'openai',
-    name: 'Grok Imagine Quality',
-    modelId: 'grok-imagine-image-quality',
-    baseUrl: 'https://api.x.ai',
-    maxRefImages: 1,
-    maxOutputSize: '2K',
-    supportsAdvancedParams: false,
-    streamImages: false,
-  },
-};
 
 export const BUILTIN_IMAGE_PRESET_OPTIONS = Object.values(BUILTIN_IMAGE_PRESETS).map((preset) => ({
   value: preset.id,
@@ -214,15 +116,15 @@ export function getImageApiFlavor(model: Pick<ImageModelConfig, 'builtinPreset' 
 /**
  * 解析图片模型实际发送给上游的模型 ID。
  * @param model 包含模板、用户自定义模型 ID 与预设标记的图片模型配置。
- * @returns 用户填写的模型 ID；GPT Image 2 留空预设时返回 gpt-image-2。
+ * @returns 用户填写的模型 ID；启用预设时返回配置文件中的默认模型 ID。
  */
 export function getResolvedImageModelId(
   model: Pick<ImageModelConfig, 'builtinPreset' | 'modelId' | 'usesPresetModelId'>,
 ): string {
   const customModelId = String(model.modelId || '').trim();
   if (customModelId) return customModelId;
-  return model.usesPresetModelId && model.builtinPreset === 'gpt-image-2'
-    ? BUILTIN_IMAGE_PRESETS['gpt-image-2'].modelId
+  return model.usesPresetModelId
+    ? BUILTIN_IMAGE_PRESETS[model.builtinPreset].modelId
     : '';
 }
 
@@ -249,7 +151,7 @@ function inferBuiltinPresetId(raw: Partial<ImageModelConfig>): BuiltinImagePrese
 }
 
 /**
- * 归一化图片模型配置，并保留 GPT Image 2 的留空预设状态。
+ * 归一化图片模型配置，并保留所有内置预设的留空模型 ID 状态。
  * @param raw 从本地存储或外部配置读取的原始图片模型数据。
  * @returns 规范化后的图片模型；缺少内部标识时返回 null。
  */
@@ -264,10 +166,8 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
     ? preset.protocol
     : (isProviderProtocol(raw.protocol) ? raw.protocol : preset.protocol);
   const configuredModelId = String(raw.modelId || '').trim();
-  const usesPresetModelId = presetId === 'gpt-image-2' && (
-    raw.usesPresetModelId === true
-    || (raw.builtinPreset === 'gpt-image-2' && (!configuredModelId || configuredModelId === preset.modelId))
-  );
+  const usesPresetModelId = raw.usesPresetModelId === true
+    || (Boolean(raw.builtinPreset) && (!configuredModelId || configuredModelId === preset.modelId));
   return {
     id,
     protocol,

@@ -19,3 +19,8 @@ If you encounter a scenario where a definitive decision is impossible due to ins
 1. **Halt automatic execution immediately.**
 2. **Present a clear, structured comparison** of the viable options (detailing the pros, cons, and trade-offs of each).
 3. **Ask a direct, targeted question** to guide the user to make the strategic choice.
+
+# Customization Configuration
+
+- **Environment Variables First**: Any content that needs to be customized **MUST** be configured through environment variables whenever technically possible. Do not hard-code customizable values in source files or static configuration files.
+- **Mandatory Blocker**: If a required customization cannot be placed in environment variables, **halt the task immediately** and explain the technical reason and impact to the user before making any implementation decision.

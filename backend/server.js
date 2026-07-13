@@ -8,7 +8,11 @@ const sharp = require('sharp');
 const { WebSocketServer } = require('ws');
 const { createXaiImagineRequestInit, getXaiImagineEndpoint } = require('./xai-imagine');
 
-const ENV_FILE_PATH = path.join(process.cwd(), '.env');
+const ENV_FILE_PATHS = [...new Set([
+  path.join(__dirname, '.env'),
+  path.join(process.cwd(), '.env'),
+  path.join(__dirname, '..', '.env'),
+])];
 const TASK_STATUS = {
   QUEUED: '排队中',
   LEGACY_QUEUED: 'queued',
@@ -40,7 +44,7 @@ const DEFAULT_IMAGE_MODEL_KEY_GUIDE = {
   url: 'https://flyreq.com',
 };
 
-function parseEnvFile(filePath = ENV_FILE_PATH) {
+function parseEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
 
   const values = {};
@@ -60,6 +64,14 @@ function parseEnvFile(filePath = ENV_FILE_PATH) {
   return values;
 }
 
+/**
+ * 合并后端目录与项目根目录的环境变量文件。
+ * @returns 后加载文件覆盖先加载文件后的环境变量对象。
+ */
+function parseEnvFiles() {
+  return ENV_FILE_PATHS.reduce((values, filePath) => ({ ...values, ...parseEnvFile(filePath) }), {});
+}
+
 // .env 运行期读取加 1 秒 TTL 缓存：原本每次调用都同步 readFileSync，而
 // getQueueStats / 建任务 / 队列广播 / WS 订阅 / 出图前都走它（单次 getQueueStats
 // 触发 3 次读盘），在事件循环上造成不必要的同步 IO。1 秒对"改 .env 实时生效"
@@ -70,7 +82,7 @@ function getRuntimeEnv() {
   const now = Date.now();
   if (!_runtimeEnvCache.values || now >= _runtimeEnvCache.expiresAt) {
     _runtimeEnvCache = {
-      values: { ...process.env, ...parseEnvFile() },
+      values: { ...process.env, ...parseEnvFiles() },
       expiresAt: now + 1000,
     };
   }
@@ -78,7 +90,7 @@ function getRuntimeEnv() {
 }
 
 function loadEnvFile() {
-  const values = parseEnvFile();
+  const values = parseEnvFiles();
   for (const [key, value] of Object.entries(values)) {
     if (!(key in process.env)) {
       process.env[key] = value;
@@ -366,6 +378,31 @@ function getClientIp(req) {
 
 function hashApiKey(apiKey) {
   return createHash('sha256').update(String(apiKey || '')).digest('hex').slice(0, 24);
+}
+
+/**
+ * 解析图片模板到实际模型 ID 的运行时环境变量映射。
+ * @param {Record<string, string>} env 当前运行时环境变量。
+ * @returns {Record<string, string>} 经白名单过滤后的模板模型 ID 映射。
+ */
+function resolveImagePresetModelIds(env = getRuntimeEnv()) {
+  const raw = String(env.FLYREQ_IMAGE_PRESET_MODEL_IDS || '').trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const validIds = new Set([
+      'gemini-2.5-flash-image', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview',
+      'gemini-3.1-flash-lite-image', 'gpt-image-2', 'grok-imagine-image', 'grok-imagine-image-quality',
+    ]);
+    const result = {};
+    for (const [presetId, value] of Object.entries(parsed)) {
+      if (validIds.has(presetId) && typeof value === 'string' && value.trim()) result[presetId] = value.trim();
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 function delay(ms) {
@@ -2076,6 +2113,7 @@ async function handleApi(req, res, pathname) {
           promptGalleryMode: mode,
           promptGalleryPasswordEnabled: String(env.PROMPT_GALLERY_PASSWORD || '').trim().length > 0,
           imageModelKeyGuide: resolveImageModelKeyGuide(env),
+          imagePresetModelIds: resolveImagePresetModelIds(env),
         },
         {
           'Cache-Control': 'no-store, no-cache, must-revalidate',

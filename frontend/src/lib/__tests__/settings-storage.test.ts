@@ -7,7 +7,7 @@ import {
   isPromptOptimizeEnabled,
   setPromptOptimizeEnabled,
 } from '@/lib/settings-storage';
-import { getResolvedImageModelId, loadRegistry } from '@/lib/flyreq-models';
+import { BUILTIN_IMAGE_PRESETS, getResolvedImageModelId, loadRegistry } from '@/lib/flyreq-models';
 import { resolveImageTaskProvider } from '@/lib/flyreq-task-client';
 
 const storage = new Map<string, string>();
@@ -117,6 +117,29 @@ describe('settings-storage model availability', () => {
     expect(model).toMatchObject({ modelId: '', usesPresetModelId: true });
     expect(getResolvedImageModelId(model)).toBe('gpt-image-2');
     expect(resolveImageTaskProvider('img-gpt-image-2').modelId).toBe('gpt-image-2');
+    expect(hasConfiguredImageModel()).toBe(true);
+  });
+
+  it('uses every built-in preset model ID when its configured model ID is blank', () => {
+    const imageModels = Object.values(BUILTIN_IMAGE_PRESETS).map((preset) => ({
+      id: `img-${preset.id}`, protocol: preset.protocol, name: preset.name, modelId: '',
+      apiKey: 'key', baseUrl: preset.baseUrl, builtinPreset: preset.id,
+      maxRefImages: preset.maxRefImages, maxOutputSize: preset.maxOutputSize,
+      supportsAdvancedParams: preset.supportsAdvancedParams,
+    }));
+    writeRegistry({
+      imageModels,
+      textModels: [],
+      defaults: { textToImage: imageModels[0].id, imageToImage: imageModels[0].id },
+    });
+
+    const registry = loadRegistry();
+    for (const preset of Object.values(BUILTIN_IMAGE_PRESETS)) {
+      const model = registry.imageModels.find((item) => item.builtinPreset === preset.id);
+      expect(model).toMatchObject({ modelId: '', usesPresetModelId: true });
+      expect(getResolvedImageModelId(model!)).toBe(preset.modelId);
+      expect(resolveImageTaskProvider(`img-${preset.id}`).modelId).toBe(preset.modelId);
+    }
     expect(hasConfiguredImageModel()).toBe(true);
   });
 
