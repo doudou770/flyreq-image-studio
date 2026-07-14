@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ImagePlus, Layers, Maximize, Pencil, RectangleHorizontal, Sparkles, Thermometer, Wand2, X } from 'lucide-react';
+import { Check, ImagePlus, Layers, Maximize, Pencil, RectangleHorizontal, Thermometer, Wand2, X } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';

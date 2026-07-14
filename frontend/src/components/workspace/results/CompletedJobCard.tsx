@@ -5,15 +5,16 @@ import { AlertCircle, Check, Copy, Download, ImagePlus, Maximize, RefreshCw, Rot
 import { createPortal } from 'react-dom';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useImageLazyLoad } from '@/hooks/useImageLazyLoad';
 import { getImageSrc, type StoredJob } from '@/lib/job-store';
 import { resolveStoredImageRef, revokeBlobUrls } from '@/lib/image-downloader';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
-import { getModelDisplayName, getOutputSizeLabel } from '@/lib/model-capabilities';
+import { getModelDisplayName, getOutputSizeLabel, getSupportsTemperature } from '@/lib/model-capabilities';
+import { getEffectiveImagePrompt } from '@/lib/prompt-variants';
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
-import { isGptImageModel } from '@/lib/gemini-config';
 import {
   copyImagePayload,
   dispatchImageActionToast,
@@ -171,7 +172,9 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
     ? primaryImageResolution
     : null;
   const isMultiple = sourceImages.length > 1;
-  const supportsTemperature = !isGptImageModel(job.model);
+  const supportsTemperature = getSupportsTemperature(job.model);
+  const effectivePrompt = getEffectiveImagePrompt(job.prompt, job.promptVariants, job.effectivePrompt);
+  const hasPromptVariant = effectivePrompt !== job.prompt;
   const outputSizeLabel = job.custom_size || getOutputSizeLabel(job.output_size);
   const requestedAtLabel = formatJobDateTime(job.created_at);
   const durationLabel = formatDuration(getJobDurationSeconds(job));
@@ -255,7 +258,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
   };
 
   const copyPrompt = () => {
-    navigator.clipboard.writeText(job.prompt);
+    navigator.clipboard.writeText(effectivePrompt);
     setPromptCopied(true);
     setTimeout(() => setPromptCopied(false), 2000);
   };
@@ -334,12 +337,25 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+              <div className="min-w-0 flex flex-1 items-center gap-1.5">
+                <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+                {hasPromptVariant && (
+                  <Popover>
+                    <PopoverTrigger className="shrink-0 rounded border border-primary/30 px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/5">
+                      本张附加指令
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 space-y-2">
+                      <p className="text-sm font-medium">本张实际提示词</p>
+                      <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{effectivePrompt}</p>
+                    </PopoverContent>
+                  </Popover>
+                )}
+              </div>
               <JobSseBadge job={job} />
               <button
                 onClick={copyPrompt}
                 className="flex-shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-                title="复制提示词"
+                title="复制本张实际提示词"
               >
                 {promptCopied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
@@ -501,7 +517,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
               variant="ghost"
               size="icon-sm"
               onClick={() => onRetry(job)}
-              title="重试"
+              title="以本张实际提示词重试"
               className="text-muted-foreground hover:text-primary"
             >
               <RotateCcw className="w-4 h-4" />

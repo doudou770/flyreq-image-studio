@@ -467,7 +467,7 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
   const optimizeHandleRef = useRef<StreamPromptOptimizeHandle | null>(null);
 
-  const handleOptimize = useCallback(() => {
+  const handleOptimize = () => {
     let textModel;
     try {
       textModel = requireDefaultConfiguredTextModel('promptOptimize');
@@ -518,7 +518,7 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
     setOptimizeOpen(true);
 
     const handle = streamPromptOptimize(
-      { apiKey: textModel.apiKey, mode: 'agent', prompt: text, context: context || undefined },
+      { apiKey: textModel.apiKey, protocol: textModel.protocol, model: textModel.modelId, mode: 'agent', prompt: text, context: context || undefined },
       {
         onDelta(token) { setOptimizedText(prev => prev + token); },
         onDone() { setOptimizing(false); },
@@ -527,7 +527,7 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
       textModel.baseUrl,
     );
     optimizeHandleRef.current = handle;
-  }, [agent.messages, agent.images]);
+  };
 
   const handleClearDraft = useCallback(() => {
     const editor = editorRef.current;

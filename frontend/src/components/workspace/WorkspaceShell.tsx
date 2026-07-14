@@ -90,15 +90,20 @@ export function WorkspaceShell() {
 
   useEffect(() => {
     if (externalConfigParsedRef.current) return;
-    externalConfigParsedRef.current = true;
 
     const url = new URL(window.location.href);
     const config = parseExternalModelConfig(url);
     if (!config) return;
 
-    setExternalModelConfig(config);
-    setSettingsOpen(true);
-    window.history.replaceState(null, '', getCleanUrlAfterExternalModelConfig(url));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      externalConfigParsedRef.current = true;
+      setExternalModelConfig(config);
+      setSettingsOpen(true);
+      window.history.replaceState(null, '', getCleanUrlAfterExternalModelConfig(url));
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => subscribeUseAsImageReference(detail => {

@@ -26,6 +26,8 @@ export interface BuiltinImagePreset {
   maxRefImages: number;
   maxOutputSize: ImageOutputSize;
   supportsAdvancedParams: boolean;
+  /** 是否允许向 Gemini 图片接口发送温度参数。 */
+  supportsTemperature: boolean;
   streamImages?: boolean;
 }
 
@@ -37,13 +39,13 @@ export type BuiltinImagePresetModelIds = Partial<Record<BuiltinImagePresetId, st
  * 修改此处即可同时更新新增模型、留空模型 ID、默认地址和能力上限。
  */
 const DEFAULT_BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePreset> = {
-  'gemini-2.5-flash-image': { id: 'gemini-2.5-flash-image', protocol: 'google', name: 'Banana', modelId: 'gemini-2.5-flash-image', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 3, maxOutputSize: '1K', supportsAdvancedParams: false, streamImages: false },
-  'gemini-3-pro-image-preview': { id: 'gemini-3-pro-image-preview', protocol: 'google', name: 'Banana Pro', modelId: 'gemini-3-pro-image-preview', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 14, maxOutputSize: '4K', supportsAdvancedParams: false, streamImages: false },
-  'gemini-3.1-flash-image-preview': { id: 'gemini-3.1-flash-image-preview', protocol: 'google', name: 'Banana 2', modelId: 'gemini-3.1-flash-image-preview', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 14, maxOutputSize: '4K', supportsAdvancedParams: false, streamImages: false },
-  'gemini-3.1-flash-lite-image': { id: 'gemini-3.1-flash-lite-image', protocol: 'google', name: 'Banana 2 Lite', modelId: 'gemini-3.1-flash-lite-image', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 14, maxOutputSize: '1K', supportsAdvancedParams: false, streamImages: false },
-  'gpt-image-2': { id: 'gpt-image-2', protocol: 'openai', name: 'GPT Image 2', modelId: 'gpt-image-2', baseUrl: 'https://api.openai.com', maxRefImages: 16, maxOutputSize: '4K', supportsAdvancedParams: true, streamImages: false },
-  'grok-imagine-image': { id: 'grok-imagine-image', protocol: 'openai', name: 'Grok Imagine', modelId: 'grok-imagine-image', baseUrl: 'https://api.x.ai', maxRefImages: 1, maxOutputSize: '2K', supportsAdvancedParams: false, streamImages: false },
-  'grok-imagine-image-quality': { id: 'grok-imagine-image-quality', protocol: 'openai', name: 'Grok Imagine Quality', modelId: 'grok-imagine-image-quality', baseUrl: 'https://api.x.ai', maxRefImages: 1, maxOutputSize: '2K', supportsAdvancedParams: false, streamImages: false },
+  'gemini-2.5-flash-image': { id: 'gemini-2.5-flash-image', protocol: 'google', name: 'Banana', modelId: 'gemini-2.5-flash-image', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 3, maxOutputSize: '1K', supportsAdvancedParams: false, supportsTemperature: true, streamImages: false },
+  'gemini-3-pro-image-preview': { id: 'gemini-3-pro-image-preview', protocol: 'google', name: 'Banana Pro', modelId: 'gemini-3-pro-image-preview', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 14, maxOutputSize: '4K', supportsAdvancedParams: false, supportsTemperature: true, streamImages: false },
+  'gemini-3.1-flash-image-preview': { id: 'gemini-3.1-flash-image-preview', protocol: 'google', name: 'Banana 2', modelId: 'gemini-3.1-flash-image-preview', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 14, maxOutputSize: '4K', supportsAdvancedParams: false, supportsTemperature: true, streamImages: false },
+  'gemini-3.1-flash-lite-image': { id: 'gemini-3.1-flash-lite-image', protocol: 'google', name: 'Banana 2 Lite', modelId: 'gemini-3.1-flash-lite-image', baseUrl: 'https://generativelanguage.googleapis.com', maxRefImages: 14, maxOutputSize: '1K', supportsAdvancedParams: false, supportsTemperature: true, streamImages: false },
+  'gpt-image-2': { id: 'gpt-image-2', protocol: 'openai', name: 'GPT Image 2', modelId: 'gpt-image-2', baseUrl: 'https://api.openai.com', maxRefImages: 16, maxOutputSize: '4K', supportsAdvancedParams: true, supportsTemperature: false, streamImages: false },
+  'grok-imagine-image': { id: 'grok-imagine-image', protocol: 'openai', name: 'Grok Imagine', modelId: 'grok-imagine-image', baseUrl: 'https://api.x.ai', maxRefImages: 1, maxOutputSize: '2K', supportsAdvancedParams: false, supportsTemperature: false, streamImages: false },
+  'grok-imagine-image-quality': { id: 'grok-imagine-image-quality', protocol: 'openai', name: 'Grok Imagine Quality', modelId: 'grok-imagine-image-quality', baseUrl: 'https://api.x.ai', maxRefImages: 1, maxOutputSize: '2K', supportsAdvancedParams: false, supportsTemperature: false, streamImages: false },
 };
 
 /** 当前浏览器会话实际使用的预设配置。 */

@@ -46,6 +46,8 @@ export interface StoredJob {
   imageData?: string;
   parallelCount?: number;
   promptVariants?: string[];
+  /** 本张图片实际发送给上游的完整提示词，旧记录缺失时可由主提示词和附加提示词合成。 */
+  effectivePrompt?: string;
   images?: string[];
   /** 实际返回 text/event-stream 的上游生成请求数量。 */
   sseResponses?: number;

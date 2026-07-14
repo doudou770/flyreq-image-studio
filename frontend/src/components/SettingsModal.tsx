@@ -17,7 +17,6 @@ import {
   Settings,
   Trash2,
   Upload,
-  Wand2,
   XCircle,
 } from 'lucide-react';
 import {
@@ -38,11 +37,8 @@ import {
   applyBuiltinImagePresetModelIds,
   BUILTIN_IMAGE_PRESET_OPTIONS,
   DEFAULT_DEFAULTS,
-  DEFAULT_TEXT_MODEL_TEMPLATES,
   generateModelId,
   getDefaultTextModelTemplate,
-  getCompleteImageModels,
-  getCompleteTextModels,
   getImageModelOutputSizes,
   getResolvedImageModelId,
   isXaiImaginePresetId,
@@ -98,6 +94,7 @@ function createImageModelDraft(): ImageModelConfig {
     maxRefImages: preset.maxRefImages,
     maxOutputSize: preset.maxOutputSize,
     supportsAdvancedParams: preset.supportsAdvancedParams,
+    supportsTemperature: false,
     streamImages: preset.streamImages,
   };
 }
@@ -128,6 +125,7 @@ function createExternalImageModelDraft(config: ExternalModelConfig): ImageModelC
     maxRefImages: isXaiImagine ? preset.maxRefImages : (config.maxRefImages || preset.maxRefImages),
     maxOutputSize: isXaiImagine && config.maxOutputSize !== '1K' ? preset.maxOutputSize : (config.maxOutputSize || preset.maxOutputSize),
     supportsAdvancedParams: protocol === 'openai' && isGptImage ? preset.supportsAdvancedParams : false,
+    supportsTemperature: protocol === 'google' && Boolean(config.supportsTemperature ?? (usesPresetModelId ? preset.supportsTemperature : false)),
     streamImages: protocol === 'openai' && isGptImage ? Boolean(config.streamImages ?? preset.streamImages) : false,
   };
 }
@@ -155,6 +153,7 @@ function patchImageModelFromExternal(model: ImageModelConfig, config: ExternalMo
       ? preset.maxOutputSize
       : (config.maxOutputSize || model.maxOutputSize || preset.maxOutputSize),
     supportsAdvancedParams: protocol === 'openai' && isGptImage ? model.supportsAdvancedParams || preset.supportsAdvancedParams : false,
+    supportsTemperature: protocol === 'google' && Boolean(config.supportsTemperature ?? (usesPresetModelId ? model.supportsTemperature ?? preset.supportsTemperature : false)),
     streamImages: protocol === 'openai' && isGptImage ? Boolean(config.streamImages ?? model.streamImages ?? preset.streamImages) : false,
   };
 }
@@ -238,19 +237,24 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   useEffect(() => {
     if (!isOpen) return;
     const registry = loadRegistry();
-    setImageModels(registry.imageModels.map(cloneImageModel));
-    setTextModels(registry.textModels.map(cloneTextModel));
-    setDefaults(normalizeDefaults(registry.defaults, registry.imageModels, registry.textModels));
-    setSelectedImageModelId(registry.imageModels[0]?.id || '');
-    setSelectedTextModelId(registry.textModels[0]?.id || '');
-    setError(null);
-    setSuccess(null);
-    setExternalConfigNotice(null);
-    setModelStatuses(null);
-    setModelCheckError(null);
-    setBackupError(null);
-    setBackupSuccess(null);
-    setPromptOptimizeEnabledState(isPromptOptimizeEnabled());
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setImageModels(registry.imageModels.map(cloneImageModel));
+      setTextModels(registry.textModels.map(cloneTextModel));
+      setDefaults(normalizeDefaults(registry.defaults, registry.imageModels, registry.textModels));
+      setSelectedImageModelId(registry.imageModels[0]?.id || '');
+      setSelectedTextModelId(registry.textModels[0]?.id || '');
+      setError(null);
+      setSuccess(null);
+      setExternalConfigNotice(null);
+      setModelStatuses(null);
+      setModelCheckError(null);
+      setBackupError(null);
+      setBackupSuccess(null);
+      setPromptOptimizeEnabledState(isPromptOptimizeEnabled());
+    });
+    return () => { cancelled = true; };
   }, [isOpen]);
 
   useEffect(() => {
@@ -279,40 +283,49 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
 
   useEffect(() => {
     if (!isOpen || !externalModelConfig) return;
-
-    setImageModels((prev) => {
-      const existing = getExternalImageModelMatch(prev, externalModelConfig);
-      const nextModel = existing
-        ? patchImageModelFromExternal(existing, externalModelConfig)
-        : createExternalImageModelDraft(externalModelConfig);
-      setSelectedImageModelId(nextModel.id);
-      if (isCompleteImageModel(nextModel)) {
-        setDefaults((current) => ({
-          ...current,
-          textToImage: nextModel.id,
-          imageToImage: nextModel.id,
-        }));
-      }
-      return existing
-        ? prev.map((model) => (model.id === existing.id ? nextModel : model))
-        : [...prev, nextModel];
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setImageModels((prev) => {
+        const existing = getExternalImageModelMatch(prev, externalModelConfig);
+        const nextModel = existing
+          ? patchImageModelFromExternal(existing, externalModelConfig)
+          : createExternalImageModelDraft(externalModelConfig);
+        setSelectedImageModelId(nextModel.id);
+        if (isCompleteImageModel(nextModel)) {
+          setDefaults((current) => ({
+            ...current,
+            textToImage: nextModel.id,
+            imageToImage: nextModel.id,
+          }));
+        }
+        return existing
+          ? prev.map((model) => (model.id === existing.id ? nextModel : model))
+          : [...prev, nextModel];
+      });
+      setExternalConfigNotice(
+        externalModelConfig.apiKey
+          ? '已从外部链接带入模型配置，并将其设为文生图/图生图默认模型。请确认后点击“保存设置”。URL 中的配置参数已清理。'
+          : '已从外部链接带入模型配置，请补充 API Key 后点击“保存设置”。URL 中的配置参数已清理。',
+      );
+      setError(null);
+      setSuccess(null);
+      onExternalModelConfigConsumed?.();
     });
-    setExternalConfigNotice(
-      externalModelConfig.apiKey
-        ? '已从外部链接带入模型配置，并将其设为文生图/图生图默认模型。请确认后点击“保存设置”。URL 中的配置参数已清理。'
-        : '已从外部链接带入模型配置，请补充 API Key 后点击“保存设置”。URL 中的配置参数已清理。',
-    );
-    setError(null);
-    setSuccess(null);
-    onExternalModelConfigConsumed?.();
+    return () => { cancelled = true; };
   }, [externalModelConfig, isOpen, onExternalModelConfigConsumed]);
 
   useEffect(() => {
     if (!isOpen) return;
-    setDefaults((prev) => {
-      const next = normalizeDefaults(prev, imageModels, textModels);
-      return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setDefaults((prev) => {
+        const next = normalizeDefaults(prev, imageModels, textModels);
+        return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
+      });
     });
+    return () => { cancelled = true; };
   }, [imageModels, isOpen, textModels]);
 
   const selectedImageModel = useMemo(
@@ -350,10 +363,12 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
         next.maxRefImages = preset.maxRefImages;
         next.maxOutputSize = preset.maxOutputSize;
         next.supportsAdvancedParams = preset.supportsAdvancedParams;
+        next.supportsTemperature = preset.supportsTemperature;
         next.streamImages = preset.streamImages;
       }
       if ('modelId' in patch) {
         next.usesPresetModelId = !next.modelId.trim();
+        if (next.protocol === 'google' && !next.usesPresetModelId) next.supportsTemperature = false;
       }
       if (isXaiImaginePresetId(next.builtinPreset)) {
         const preset = BUILTIN_IMAGE_PRESETS[next.builtinPreset];
@@ -361,10 +376,14 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
         next.maxRefImages = preset.maxRefImages;
         next.maxOutputSize = next.maxOutputSize === '1K' ? '1K' : preset.maxOutputSize;
         next.supportsAdvancedParams = false;
+        next.supportsTemperature = false;
         next.streamImages = false;
       } else if (patch.protocol === 'google') {
         next.supportsAdvancedParams = false;
         next.streamImages = false;
+        next.supportsTemperature = false;
+      } else if (patch.protocol === 'openai') {
+        next.supportsTemperature = false;
       }
       return next;
     }));
@@ -723,6 +742,18 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                         options={selectedImageOutputSizes.map((size) => ({ value: size, label: getOutputSizeLabel(size) }))}
                       />
                     </div>
+                    {selectedImageModel.protocol === 'google' && (
+                      <div className="md:col-span-2 flex items-center justify-between rounded-lg border px-3 py-2">
+                        <div>
+                          <p className="text-sm font-medium">温度参数</p>
+                          <p className="text-xs text-muted-foreground">仅在当前上游图片模型明确兼容 Gemini temperature 参数时开启；关闭后工作台不会显示或发送温度。</p>
+                        </div>
+                        <Switch
+                          checked={Boolean(selectedImageModel.supportsTemperature)}
+                          onCheckedChange={(checked) => handleUpdateImageModel(selectedImageModel.id, { supportsTemperature: checked })}
+                        />
+                      </div>
+                    )}
                     {selectedImageModel.protocol === 'openai' && selectedImageModel.builtinPreset === 'gpt-image-2' && (
                       <div className="grid gap-3 md:col-span-2">
                         <div className="flex items-center justify-between rounded-lg border px-3 py-2">

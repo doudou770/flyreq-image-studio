@@ -30,22 +30,28 @@ export function LanguageProvider({
   const [locale, setLocaleState] = useState<Locale>(() => normalizeLocale(initialLocale));
 
   useEffect(() => {
+    let cancelled = false;
+    let nextLocale = DEFAULT_LOCALE;
     try {
       const urlLocale = getLocaleFromPathname(window.location.pathname);
       if (urlLocale) {
-        setLocaleState(urlLocale);
-        localStorage.setItem(LOCALE_STORAGE_KEY, urlLocale);
-        document.documentElement.lang = localeToHtmlLang(urlLocale);
-        return;
+        nextLocale = urlLocale;
+        try {
+          localStorage.setItem(LOCALE_STORAGE_KEY, urlLocale);
+        } catch {
+          // 隐私模式或受限浏览器可能禁止本地存储，但 URL 语言仍应生效。
+        }
+      } else {
+        nextLocale = normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY));
       }
-
-      const stored = normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY));
-      setLocaleState(stored);
-      document.documentElement.lang = localeToHtmlLang(stored);
     } catch {
-      setLocaleState(DEFAULT_LOCALE);
-      document.documentElement.lang = localeToHtmlLang(DEFAULT_LOCALE);
+      nextLocale = DEFAULT_LOCALE;
     }
+    document.documentElement.lang = localeToHtmlLang(nextLocale);
+    queueMicrotask(() => {
+      if (!cancelled) setLocaleState(nextLocale);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   const setLocale = useCallback((nextLocale: Locale) => {

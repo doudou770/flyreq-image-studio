@@ -161,6 +161,11 @@ export function ImageGenerationWorkbench({
   const currentMode: WorkbenchMode = pendingFiles.length > 0 ? 'image-to-image' : 'text-to-image';
   const disabledMessage = '请先在设置中配置 FlyReq API 密钥，配置完成后即可开始生成图片。';
 
+  /**
+   * 合并参数条回传的配置，并在切回单图时清理不可见的逐图附加提示词。
+   * @param patch 参数条变更后的局部配置。
+   * @returns 无返回值，相关表单状态会同步更新。
+   */
   const handleParamsChange = useCallback((patch: Partial<GenerationParamsValue>) => {
     if (patch.model !== undefined) setModel(patch.model);
     if (patch.outputSize !== undefined) setOutputSize(patch.outputSize);
@@ -169,7 +174,12 @@ export function ImageGenerationWorkbench({
     if (patch.temperature !== undefined) setTemperature(patch.temperature);
     if (patch.parallelCount !== undefined) {
       setParallelCount(patch.parallelCount);
-      if (patch.parallelCount > 1) setPromptVariantsOpen(true);
+      if (patch.parallelCount > 1) {
+        setPromptVariantsOpen(true);
+      } else {
+        setPromptVariants([]);
+        setPromptVariantsOpen(false);
+      }
     }
     if (patch.gptImageAdvancedParams !== undefined) setGptImageAdvancedParams(patch.gptImageAdvancedParams);
   }, []);
@@ -276,7 +286,7 @@ export function ImageGenerationWorkbench({
 
     const images = pendingFiles.map(f => ({ dataUrl: f.dataUrl, mimeType: f.mimeType }));
     const handle = streamPromptOptimize(
-      { apiKey: textModel.apiKey, mode: currentMode, prompt: prompt.trim(), ...(images.length > 0 ? { images } : {}) },
+      { apiKey: textModel.apiKey, protocol: textModel.protocol, model: textModel.modelId, mode: currentMode, prompt: prompt.trim(), ...(images.length > 0 ? { images } : {}) },
       {
         onDelta(token) { setOptimizedText(prev => prev + token); },
         onDone() { setOptimizing(false); },
@@ -306,34 +316,39 @@ export function ImageGenerationWorkbench({
   useEffect(() => {
     if (!referenceDraft?.refImages.length) return;
     if (consumedDraftRef.current === referenceDraft.id) return;
-    consumedDraftRef.current = referenceDraft.id;
-    if (referenceDraft.prompt) setPrompt(referenceDraft.prompt);
-    setPendingFiles(prev => {
-      const existingIds = new Set(prev.map(file => file.id));
-      const remainingSlots = Math.max(0, maxImages - prev.length);
-      if (remainingSlots <= 0) {
-        setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图`);
-        return prev;
-      }
-      const incoming: UploadedFile[] = referenceDraft.refImages
-        .filter(img => !existingIds.has(img.id))
-        .slice(0, remainingSlots)
-        .map(img => ({
-          id: img.id,
-          name: img.name,
-          preview: img.dataUrl,
-          dataUrl: img.dataUrl,
-          mimeType: img.mimeType,
-          badge: img.badge || '参考',
-        }));
-      if (incoming.length < referenceDraft.refImages.length) {
-        setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图，已添加可容纳的图片`);
-      } else {
-        setUploadError(null);
-      }
-      return incoming.length > 0 ? [...prev, ...incoming] : prev;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      consumedDraftRef.current = referenceDraft.id;
+      if (referenceDraft.prompt) setPrompt(referenceDraft.prompt);
+      setPendingFiles(prev => {
+        const existingIds = new Set(prev.map(file => file.id));
+        const remainingSlots = Math.max(0, maxImages - prev.length);
+        if (remainingSlots <= 0) {
+          setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图`);
+          return prev;
+        }
+        const incoming: UploadedFile[] = referenceDraft.refImages
+          .filter(img => !existingIds.has(img.id))
+          .slice(0, remainingSlots)
+          .map(img => ({
+            id: img.id,
+            name: img.name,
+            preview: img.dataUrl,
+            dataUrl: img.dataUrl,
+            mimeType: img.mimeType,
+            badge: img.badge || '参考',
+          }));
+        if (incoming.length < referenceDraft.refImages.length) {
+          setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图，已添加可容纳的图片`);
+        } else {
+          setUploadError(null);
+        }
+        return incoming.length > 0 ? [...prev, ...incoming] : prev;
+      });
+      onDraftConsumed?.();
     });
-    onDraftConsumed?.();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- referenceDraft.id is the stable identity; refImages is consumed via ref guard
   }, [maxImages, model, onDraftConsumed, referenceDraft?.id]);
 
@@ -381,7 +396,7 @@ export function ImageGenerationWorkbench({
     } finally {
       setLoading(false);
     }
-  }, [maxImages, model, pendingFiles.length]);
+  }, [maxImages, model, modelLimit.description, pendingFiles.length]);
 
   const handleImportAssets = useCallback(async (selectedAssets: ImageAsset[]) => {
     if (selectedAssets.length === 0) return;

@@ -11,6 +11,8 @@ export type ExternalModelConfig = {
   apiKey?: string;
   maxRefImages?: number;
   maxOutputSize?: ImageOutputSize;
+  /** 是否允许向 Google 图片接口发送温度参数。 */
+  supportsTemperature?: boolean;
   streamImages?: boolean;
 };
 
@@ -22,6 +24,7 @@ function normalizePreset(value: string | null): BuiltinImagePresetId | undefined
   return value === 'gemini-2.5-flash-image'
     || value === 'gemini-3-pro-image-preview'
     || value === 'gemini-3.1-flash-image-preview'
+    || value === 'gemini-3.1-flash-lite-image'
     || value === 'gpt-image-2'
     || value === 'grok-imagine-image'
     || value === 'grok-imagine-image-quality'
@@ -88,6 +91,7 @@ function normalizeProviderPayload(payload: Record<string, unknown>): ExternalMod
     apiKey: readString(payload.apiKey),
     maxRefImages: readNumber(payload.maxRefImages),
     maxOutputSize: normalizeOutputSize(readString(payload.maxOutputSize) || null),
+    supportsTemperature: readBoolean(payload.supportsTemperature),
     streamImages: readBoolean(payload.streamImages),
   };
 }
@@ -115,6 +119,7 @@ export function parseExternalModelConfig(url: URL): ExternalModelConfig | null {
     apiKey: readTrimmed(url.searchParams, 'apiKey'),
     maxRefImages,
     maxOutputSize: normalizeOutputSize(url.searchParams.get('maxOutputSize')),
+    supportsTemperature: readBoolean(url.searchParams.get('supportsTemperature') ?? undefined),
     streamImages: readBoolean(url.searchParams.get('streamImages') ?? undefined),
   };
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import { TextToImageForm } from '../TextToImageForm'
 import { LanguageProvider } from '../LanguageProvider'
 
@@ -30,12 +30,22 @@ const TEST_REGISTRY = {
   defaults: { textToImage: 'flyreq-gpt-image-2', imageToImage: 'flyreq-gpt-image-2' },
 }
 
-function renderForm(props: React.ComponentProps<typeof TextToImageForm>) {
-  return render(
-    <LanguageProvider initialLocale="zh">
-      <TextToImageForm {...props} />
-    </LanguageProvider>
-  )
+/**
+ * 渲染文生图表单并等待异步设置恢复完成。
+ * @param props 传递给文生图表单的组件属性。
+ * @returns 已完成初始化的渲染结果，可用于安全执行交互断言。
+ */
+async function renderForm(props: React.ComponentProps<typeof TextToImageForm>) {
+  let rendered: ReturnType<typeof render> | undefined
+  await act(async () => {
+    rendered = render(
+      <LanguageProvider initialLocale="zh">
+        <TextToImageForm {...props} />
+      </LanguageProvider>
+    )
+    await new Promise<void>(resolve => queueMicrotask(resolve))
+  })
+  return rendered!
 }
 
 describe('TextToImageForm', () => {
@@ -45,25 +55,25 @@ describe('TextToImageForm', () => {
     vi.mocked(dispatchImageActionToast).mockClear()
   })
 
-  it('renders the form with placeholder text', () => {
+  it('renders the form with placeholder text', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit })
+    await renderForm({ onSubmit })
 
     expect(screen.getByPlaceholderText('描述你想要生成的图像...')).toBeInTheDocument()
     expect(screen.getByText('发送：Enter · 换行：Shift + Enter')).toBeInTheDocument()
   })
 
-  it('submit button is disabled when prompt is empty', () => {
+  it('submit button is disabled when prompt is empty', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit })
+    await renderForm({ onSubmit })
 
     const submitButton = screen.getByRole('button', { name: '' }) // Arrow icon button
     expect(submitButton).toBeDisabled()
   })
 
-  it('submit button is enabled when prompt has text', () => {
+  it('submit button is enabled when prompt has text', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit })
+    await renderForm({ onSubmit })
 
     const textarea = screen.getByPlaceholderText('描述你想要生成的图像...')
     fireEvent.change(textarea, { target: { value: 'A beautiful sunset' } })
@@ -72,9 +82,9 @@ describe('TextToImageForm', () => {
     expect(submitButton).not.toBeDisabled()
   })
 
-  it('calls onSubmit with prompt when Enter is pressed by default', () => {
+  it('calls onSubmit with prompt when Enter is pressed by default', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit })
+    await renderForm({ onSubmit })
 
     const textarea = screen.getByPlaceholderText('描述你想要生成的图像...')
     fireEvent.change(textarea, { target: { value: 'A beautiful sunset' } })
@@ -82,8 +92,8 @@ describe('TextToImageForm', () => {
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       prompts: ['A beautiful sunset'],
-      outputSize: '1K',
-      aspectRatio: '1:1',
+      outputSize: 'auto',
+      aspectRatio: 'auto',
       temperature: 1,
       model: 'flyreq-gpt-image-2',
       gptImageQuality: 'auto',
@@ -94,11 +104,11 @@ describe('TextToImageForm', () => {
     }))
   })
 
-  it('keeps the prompt and shows a message when no image model is selected', () => {
+  it('keeps the prompt and shows a message when no image model is selected', async () => {
     const onSubmit = vi.fn()
     localStorage.removeItem('flyreq-model-registry')
     localStorage.setItem('flyreq-t2i-settings', JSON.stringify({ model: '' }))
-    renderForm({ onSubmit })
+    await renderForm({ onSubmit })
 
     const textarea = screen.getByPlaceholderText('描述你想要生成的图像...')
     fireEvent.change(textarea, { target: { value: 'A beautiful sunset' } })
@@ -114,14 +124,14 @@ describe('TextToImageForm', () => {
 
   it('shows image params control for GPT Image 2 model', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit, initialData: { model: 'flyreq-gpt-image-2' } })
+    await renderForm({ onSubmit, initialData: { model: 'flyreq-gpt-image-2' } })
 
     expect(await screen.findByTitle('图像参数')).toBeInTheDocument()
   })
 
   it('submits default image params for GPT Image 2 model when left on auto', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit, initialData: { model: 'flyreq-gpt-image-2', prompt: 'Cut out the subject' } })
+    await renderForm({ onSubmit, initialData: { model: 'flyreq-gpt-image-2', prompt: 'Cut out the subject' } })
 
     const textarea = screen.getByPlaceholderText('描述你想要生成的图像...')
     await screen.findByTitle('图像参数')
@@ -136,9 +146,9 @@ describe('TextToImageForm', () => {
     }))
   })
 
-  it('does NOT submit when Shift+Enter is pressed by default', () => {
+  it('does NOT submit when Shift+Enter is pressed by default', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit })
+    await renderForm({ onSubmit })
 
     const textarea = screen.getByPlaceholderText('描述你想要生成的图像...')
     fireEvent.change(textarea, { target: { value: 'A beautiful sunset' } })
@@ -147,9 +157,9 @@ describe('TextToImageForm', () => {
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
-  it('uses and persists the selected Shift+Enter submission shortcut', () => {
+  it('uses and persists the selected Shift+Enter submission shortcut', async () => {
     const onSubmit = vi.fn()
-    const { unmount } = renderForm({ onSubmit })
+    const { unmount } = await renderForm({ onSubmit })
 
     fireEvent.click(screen.getByRole('button', { name: '发送快捷键' }))
     fireEvent.click(screen.getByText('Shift + Enter 发送'))
@@ -167,15 +177,15 @@ describe('TextToImageForm', () => {
     expect(onSubmit).toHaveBeenCalled()
 
     unmount()
-    renderForm({ onSubmit: vi.fn() })
+    await renderForm({ onSubmit: vi.fn() })
     expect(screen.getByTitle('发送快捷键：Shift + Enter 发送，Enter 换行')).toBeInTheDocument()
   })
 
-  it('requires clicking the send button on small viewports', () => {
+  it('requires clicking the send button on small viewports', async () => {
     const originalInnerWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 })
     const onSubmit = vi.fn()
-    const { unmount } = renderForm({ onSubmit })
+    const { unmount } = await renderForm({ onSubmit })
 
     try {
       const textarea = screen.getByPlaceholderText('描述你想要生成的图像...')
@@ -195,9 +205,9 @@ describe('TextToImageForm', () => {
     }
   })
 
-  it('shows configuration prompt when disabled prop is true', () => {
+  it('shows configuration prompt when disabled prop is true', async () => {
     const onSubmit = vi.fn()
-    renderForm({ onSubmit, disabled: true })
+    await renderForm({ onSubmit, disabled: true })
 
     expect(screen.getByText('API 密钥未配置')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '配置' })).toBeInTheDocument()

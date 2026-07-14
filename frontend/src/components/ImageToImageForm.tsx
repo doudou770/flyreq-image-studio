@@ -24,7 +24,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { getDefaultModelId, MODEL_OPTIONS, MODEL_IMAGE_LIMITS, isGptImageModel, type ModelId } from '@/lib/gemini-config';
+import { getDefaultModelId, MODEL_OPTIONS, MODEL_IMAGE_LIMITS, type ModelId } from '@/lib/gemini-config';
 import {
   getAspectRatioOptions,
   getCustomSizeMaxSide,
@@ -33,6 +33,7 @@ import {
   getValidOutputSizes,
   DEFAULT_GPT_IMAGE_ADVANCED_PARAMS,
   getGptImageAdvancedParamsForModel,
+  getSupportsTemperature,
   normalizeCustomImageSize,
   normalizeModel,
   normalizeParallelCount,
@@ -176,7 +177,7 @@ export function ImageToImageForm({
 
     const images = pendingFiles.map(f => ({ dataUrl: f.dataUrl, mimeType: f.mimeType }));
     const handle = streamPromptOptimize(
-      { apiKey: textModel.apiKey, mode: 'image-to-image', prompt: prompt.trim(), images },
+      { apiKey: textModel.apiKey, protocol: textModel.protocol, model: textModel.modelId, mode: 'image-to-image', prompt: prompt.trim(), images },
       {
         onDelta(token) { setOptimizedText(prev => prev + token); },
         onDone() { setOptimizing(false); },
@@ -262,7 +263,7 @@ export function ImageToImageForm({
   // 当模型改变时，重置分辨率和比例
   const sizeOptions = getSizeOptions(model);
   const aspectRatioOptions = getAspectRatioOptions(model, outputSize);
-  const supportsTemperature = !isGptImageModel(model);
+  const supportsTemperature = getSupportsTemperature(model);
   const supportsAdvancedParams = supportsGptImageAdvancedParams(model);
   const autoLayoutAvailable = supportsAutoLayout(model);
   const autoLayoutLocked = autoLayoutAvailable && outputSize === 'auto';

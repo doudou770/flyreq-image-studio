@@ -20,6 +20,8 @@ export interface ImageModelConfig {
   maxRefImages: number;
   maxOutputSize: ImageOutputSize;
   supportsAdvancedParams: boolean;
+  /** 是否允许向上游发送温度参数。未配置时按内置模板迁移。 */
+  supportsTemperature?: boolean;
   streamImages?: boolean;
 }
 
@@ -99,6 +101,7 @@ export const DEFAULT_IMAGE_MODELS: ImageModelConfig[] = [
     maxRefImages: 16,
     maxOutputSize: '4K',
     supportsAdvancedParams: true,
+    supportsTemperature: false,
     streamImages: false,
   },
 ];
@@ -187,6 +190,9 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
       : normalizeImageOutputSize(raw.maxOutputSize, preset.maxOutputSize),
     supportsAdvancedParams: protocol === 'openai' && preset.supportsAdvancedParams
       ? (typeof raw.supportsAdvancedParams === 'boolean' ? raw.supportsAdvancedParams : preset.supportsAdvancedParams)
+      : false,
+    supportsTemperature: protocol === 'google'
+      ? (typeof raw.supportsTemperature === 'boolean' ? raw.supportsTemperature : Boolean(usesPresetModelId && preset.supportsTemperature))
       : false,
     streamImages: protocol === 'openai' && preset.id === 'gpt-image-2'
       ? Boolean(raw.streamImages ?? preset.streamImages)

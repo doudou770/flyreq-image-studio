@@ -188,6 +188,34 @@ describe('submitTextToImage', () => {
     expect(getJob().serverTaskId).toBe('task-advanced-1');
   });
 
+  it('omits temperature from the upstream task payload when the model does not support it', async () => {
+    const job = makeJob();
+    const { actions } = createActions(job);
+    mockedResolveImageTaskProvider.mockReturnValue({
+      apiKey: 'test-key',
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      protocol: 'google',
+      modelId: 'custom-image-model',
+      supportsTemperature: false,
+    });
+
+    await submitTextToImage({
+      prompts: ['测试'],
+      outputSize: '1K',
+      aspectRatio: '1:1',
+      temperature: 1.5,
+      model: 'custom-image-model',
+      gptImageQuality: 'auto',
+      gptImageStyle: 'auto',
+      gptImageBackground: 'auto',
+      gptImageOutputFormat: 'png',
+      parallelCount: 1,
+    }, actions, vi.fn());
+
+    const payload = mockedCreateFlyreqTasks.mock.calls[0]?.[0];
+    expect(payload).not.toHaveProperty('temperature');
+  });
+
   it('splits text-to-image outputs into independent tasks with their own prompt variant', async () => {
     const job = makeJob();
     const { actions } = createActions(job);
@@ -211,17 +239,27 @@ describe('submitTextToImage', () => {
     expect(mockedCreateFlyreqTasks.mock.calls.map(([payload]) => ({
       parallelCount: payload.parallelCount,
       promptVariants: payload.promptVariants,
+      effectivePrompts: payload.effectivePrompts,
     }))).toEqual([
-      { parallelCount: 3, promptVariants },
+      {
+        parallelCount: 3,
+        promptVariants,
+        effectivePrompts: [
+          '保持同一角色身份，生成一组宣传图\n\n本张图要求：\n正面半身',
+          '保持同一角色身份，生成一组宣传图\n\n本张图要求：\n侧身站姿',
+          '保持同一角色身份，生成一组宣传图',
+        ],
+      },
     ]);
     expect(actions.addJob).toHaveBeenCalledTimes(3);
     expect(actions.addJob.mock.calls.map(([createdJob]) => ({
       parallelCount: createdJob.parallelCount,
       promptVariants: createdJob.promptVariants,
+      effectivePrompt: createdJob.effectivePrompt,
     }))).toEqual([
-      { parallelCount: 1, promptVariants: undefined },
-      { parallelCount: 1, promptVariants: ['侧身站姿'] },
-      { parallelCount: 1, promptVariants: ['正面半身'] },
+      { parallelCount: 1, promptVariants: undefined, effectivePrompt: '保持同一角色身份，生成一组宣传图' },
+      { parallelCount: 1, promptVariants: ['侧身站姿'], effectivePrompt: '保持同一角色身份，生成一组宣传图\n\n本张图要求：\n侧身站姿' },
+      { parallelCount: 1, promptVariants: ['正面半身'], effectivePrompt: '保持同一角色身份，生成一组宣传图\n\n本张图要求：\n正面半身' },
     ]);
   });
 
@@ -284,11 +322,25 @@ describe('submitImageToImage', () => {
       mode: payload.mode,
       parallelCount: payload.parallelCount,
       promptVariants: payload.promptVariants,
+      effectivePrompts: payload.effectivePrompts,
       imageCount: payload.images.length,
     }))).toEqual([
-      { mode: 'image-to-image', parallelCount: 2, promptVariants: ['水彩风', '铅笔素描'], imageCount: 1 },
+      {
+        mode: 'image-to-image',
+        parallelCount: 2,
+        promptVariants: ['水彩风', '铅笔素描'],
+        effectivePrompts: [
+          '将参考图改为水彩画\n\n本张图要求：\n水彩风',
+          '将参考图改为水彩画\n\n本张图要求：\n铅笔素描',
+        ],
+        imageCount: 1,
+      },
     ]);
     expect(actions.addJob).toHaveBeenCalledTimes(2);
+    expect(actions.addJob.mock.calls.map(([createdJob]) => createdJob.effectivePrompt)).toEqual([
+      '将参考图改为水彩画\n\n本张图要求：\n铅笔素描',
+      '将参考图改为水彩画\n\n本张图要求：\n水彩风',
+    ]);
   });
 });
 

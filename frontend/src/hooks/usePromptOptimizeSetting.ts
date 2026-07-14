@@ -15,10 +15,14 @@ export function usePromptOptimizeSetting() {
   }, []);
 
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) refresh();
+    });
     window.addEventListener(PROMPT_OPTIMIZE_SETTING_EVENT, refresh);
     window.addEventListener('flyreq-model-registry-updated', refresh);
     return () => {
+      cancelled = true;
       window.removeEventListener(PROMPT_OPTIMIZE_SETTING_EVENT, refresh);
       window.removeEventListener('flyreq-model-registry-updated', refresh);
     };

@@ -49,6 +49,12 @@ type DialogState = { type: "crop" | "split" | "upscale" | "angle"; nodeId: strin
 
 type HistorySnapshot = { nodes: CanvasNodeData[]; connections: CanvasConnection[] };
 
+type AiTextStreamPayload = {
+  type?: string;
+  delta?: string;
+  response?: { output_text?: string };
+};
+
 type CanvasEditorProps = {
   projectId: string;
   onBack: () => void;
@@ -155,6 +161,8 @@ async function optimizeImportedPromptContent(prompt: PromptWithKey, referenceIma
   const handle = streamPromptOptimize(
     {
       apiKey: textModel.apiKey,
+      protocol: textModel.protocol,
+      model: textModel.modelId,
       mode: "canvas-prompt-gallery-import",
       prompt: original,
       context: `当前模板包含 ${referenceImageCount} 张参考图。画布会在生成配置里单独放置模板参考图，并用“目标角色图”单独指定用户上传的目标角色/OC图。`,
@@ -1344,9 +1352,9 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
         let accumulated = "";
         await readSseStream(response.body, controller.signal, (event) => {
           if (!event.data || event.data === "[DONE]") return;
-          let payload: any;
+          let payload: AiTextStreamPayload;
           try {
-            payload = JSON.parse(event.data);
+            payload = JSON.parse(event.data) as AiTextStreamPayload;
           } catch {
             return;
           }
@@ -1459,7 +1467,7 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
         ].filter(Boolean).join("\n\n") || undefined;
 
         optimizeHandleRef.current = streamPromptOptimize(
-          { apiKey: textModel.apiKey, mode, prompt: promptText, images, context },
+          { apiKey: textModel.apiKey, protocol: textModel.protocol, model: textModel.modelId, mode, prompt: promptText, images, context },
           {
             onDelta(token) { setOptimizedText((prev) => prev + token); },
             onDone() { setOptimizing(false); },

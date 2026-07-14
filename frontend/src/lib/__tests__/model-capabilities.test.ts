@@ -4,7 +4,9 @@ import {
   GPT_IMAGE_QUALITY_OPTIONS,
   getGptImageResolution,
   getAspectRatioOptions,
+  getCompatibleRetryData,
   getOutputSizeLabel,
+  getSupportsTemperature,
   getSizeOptions,
   getValidOutputSizes,
   isRetryLayoutCompatible,
@@ -110,5 +112,54 @@ describe('model capabilities', () => {
     expect(getAspectRatioOptions('banana-lite', '1K')).toHaveLength(14);
     expect(isRetryLayoutCompatible('banana-lite', '1K', '16:9')).toBe(true);
     expect(isRetryLayoutCompatible('banana-lite', '2K', '16:9')).toBe(false);
+  });
+
+  it('only enables temperature when the configured image model explicitly supports it', () => {
+    localStorage.setItem('flyreq-model-registry', JSON.stringify({
+      imageModels: [
+        {
+          id: 'temperature-enabled', protocol: 'google', name: 'Temperature Enabled',
+          modelId: 'gemini-3.1-flash-image-preview', apiKey: 'test-key',
+          baseUrl: 'https://generativelanguage.googleapis.com',
+          builtinPreset: 'gemini-3.1-flash-image-preview', maxRefImages: 14,
+          maxOutputSize: '4K', supportsAdvancedParams: false, supportsTemperature: true,
+        },
+        {
+          id: 'temperature-disabled', protocol: 'google', name: 'Temperature Disabled',
+          modelId: 'custom-image-model', apiKey: 'test-key',
+          baseUrl: 'https://generativelanguage.googleapis.com',
+          builtinPreset: 'gemini-3.1-flash-image-preview', maxRefImages: 1,
+          maxOutputSize: '1K', supportsAdvancedParams: false,
+        },
+      ],
+      textModels: [],
+      defaults: { textToImage: 'temperature-disabled', imageToImage: 'temperature-disabled' },
+    }));
+
+    expect(getSupportsTemperature('temperature-enabled')).toBe(true);
+    expect(getSupportsTemperature('temperature-disabled')).toBe(false);
+  });
+
+  it('retries a split child task as one image with its complete effective prompt', () => {
+    localStorage.setItem('flyreq-model-registry', JSON.stringify({
+      imageModels: [{
+        id: 'retry-model', protocol: 'openai', name: 'Retry Model', modelId: 'gpt-image-2',
+        apiKey: 'test-key', baseUrl: 'https://api.openai.com', builtinPreset: 'gpt-image-2',
+        maxRefImages: 1, maxOutputSize: '1K', supportsAdvancedParams: false,
+      }],
+      textModels: [],
+      defaults: { textToImage: 'retry-model', imageToImage: 'retry-model' },
+    }));
+
+    const retry = getCompatibleRetryData({
+      id: 'child-job', status: 'completed', mode: 'text-to-image',
+      prompt: '主提示词', originalPrompt: '主提示词', promptVariants: ['本张附加提示词'],
+      effectivePrompt: '主提示词\n\n本张图要求：\n本张附加提示词',
+      output_size: '1K', temperature: 1, aspect_ratio: '1:1', model: 'retry-model', created_at: '2026-07-14T00:00:00.000Z',
+    });
+
+    expect(retry.prompt).toBe('主提示词\n\n本张图要求：\n本张附加提示词');
+    expect(retry.parallelCount).toBe(1);
+    expect(retry.promptVariants).toBeUndefined();
   });
 });

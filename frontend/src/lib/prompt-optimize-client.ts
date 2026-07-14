@@ -1,10 +1,10 @@
-// 提示词优化流式客户端
-// 复用外部 API /v1/responses 端点（baseUrl 参数指定），根据模式附带不同 system prompt。
-// 图生图/动图模式会将参考图作为 input_image 一并发送（单次请求完成）。
+// 提示词优化流式客户端。
+// 根据用户配置的 OpenAI 或 Gemini 协议构造请求，并按模式附带不同的系统规则。
+// 图生图/动图模式会将参考图随同一次流式请求发送。
 
 import { readSseStream } from '@/lib/sse-stream-parser';
+import type { ProviderProtocol } from '@/lib/flyreq-models';
 
-const OPTIMIZE_MODEL = 'gpt-5.4-mini';
 const OPTIMIZE_TIMEOUT_MS = 30_000;
 const OPTIMIZE_MAX_ATTEMPTS = 2;
 
@@ -19,6 +19,9 @@ export interface OptimizeImageInput {
 
 export interface StreamPromptOptimizeInput {
   apiKey: string;
+  /** 所选文本模型的上游协议。 */
+  protocol: ProviderProtocol;
+  model: string;
   mode: PromptOptimizeMode;
   prompt: string;
   images?: OptimizeImageInput[];
@@ -117,8 +120,13 @@ const SYSTEM_PROMPTS: Record<PromptOptimizeMode, string> = {
 只输出改写后的提示词本身，不要输出解释、前缀、编号或额外说明。`,
 };
 
-// ===== 流式调用 =====
-
+/**
+ * 使用用户配置的文本模型流式优化提示词。
+ * @param input 包含鉴权信息、所选模型、优化模式及输入内容。
+ * @param callbacks 接收增量文本、完成结果和错误的回调集合。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @returns 可用于取消请求及等待请求完成的句柄。
+ */
 export function streamPromptOptimize(
   input: StreamPromptOptimizeInput,
   callbacks: StreamPromptOptimizeCallbacks,
@@ -130,8 +138,9 @@ export function streamPromptOptimize(
     try {
       await runWithRetry(baseUrl, input, callbacks, controller);
     } catch (err) {
-      if (controller.signal.aborted) return;
-      callbacks.onError(normalizeError(err));
+      const timeoutError = getTimeoutAbortError(controller.signal);
+      if (controller.signal.aborted && !timeoutError) return;
+      callbacks.onError(timeoutError || normalizeError(err));
     }
   })();
 
@@ -141,6 +150,14 @@ export function streamPromptOptimize(
   };
 }
 
+/**
+ * 在未收到任何输出前，对可恢复的上游错误执行有限次数重试。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @param input 包含模型协议、鉴权和提示词内容的请求参数。
+ * @param callbacks 接收流式文本和错误的回调集合。
+ * @param controller 用于超时和用户取消的请求控制器。
+ * @returns 请求成功完成时无返回值；不可恢复错误时抛出规范化错误。
+ */
 async function runWithRetry(
   baseUrl: string,
   input: StreamPromptOptimizeInput,
@@ -150,15 +167,25 @@ async function runWithRetry(
   const signal = controller.signal;
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= OPTIMIZE_MAX_ATTEMPTS; attempt++) {
-    if (signal.aborted) return;
+    if (signal.aborted) {
+      const timeoutError = getTimeoutAbortError(signal);
+      if (timeoutError) throw timeoutError;
+      return;
+    }
+    let receivedOutput = false;
     try {
-      await runAttempt(baseUrl, input, callbacks, controller);
+      await runAttempt(baseUrl, input, callbacks, controller, () => { receivedOutput = true; });
       return;
     } catch (err) {
-      if (signal.aborted) return;
+      if (signal.aborted) {
+        const timeoutError = getTimeoutAbortError(signal);
+        if (timeoutError) throw timeoutError;
+        return;
+      }
       const normalized = normalizeError(err);
       lastError = normalized;
-      if (attempt >= OPTIMIZE_MAX_ATTEMPTS || !isRetryable(err)) {
+      // 已经把本次结果展示给用户时，重试会把另一份文本拼接到末尾，必须停止。
+      if (receivedOutput || attempt >= OPTIMIZE_MAX_ATTEMPTS || !isRetryable(err)) {
         throw normalized;
       }
     }
@@ -179,49 +206,101 @@ interface SsePayload {
   error?: { message?: string };
 }
 
+interface GeminiPart {
+  text?: string;
+  thought?: boolean;
+}
+
+interface GeminiStreamChunk {
+  candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
+  promptFeedback?: { blockReason?: string };
+  error?: { message?: string };
+}
+
+/**
+ * 组合供两种上游协议共同使用的提示词正文。
+ * @param input 包含优化模式、用户输入、参考图和可选上下文的请求参数。
+ * @returns 已附加系统规则和上下文的用户输入文本。
+ */
+function buildOptimizeUserText(input: StreamPromptOptimizeInput): string {
+  let userText = `${SYSTEM_PROMPTS[input.mode]}\n\n---\n\n`;
+  if (input.context) {
+    userText += `${input.context}\n\n---\n\n`;
+  }
+  return `${userText}用户输入：\n${input.prompt}`;
+}
+
+/**
+ * 构建 OpenAI Responses API 所需的提示词优化请求体。
+ * @param input 包含模型、参考图和提示词的请求参数。
+ * @param userText 已组合完成的用户提示词正文。
+ * @returns 可直接透传给 OpenAI 兼容服务的请求对象。
+ */
+function buildOpenAiOptimizeRequest(input: StreamPromptOptimizeInput, userText: string) {
+  const content: OptimizeContentPart[] = [{ type: 'input_text', text: userText }];
+  for (const image of input.images || []) {
+    content.push({ type: 'input_image', image_url: image.dataUrl });
+  }
+  return {
+    model: input.model,
+    stream: true,
+    reasoning: { effort: 'low' as const },
+    input: [{ role: 'user', content }],
+  };
+}
+
+/**
+ * 将 Data URL 或纯 Base64 参考图标准化为 Gemini 可接受的内联数据。
+ * @param image 待发送的参考图。
+ * @returns 包含 MIME 类型和 Base64 正文的 Gemini 内联数据对象。
+ */
+function toGeminiInlineData(image: OptimizeImageInput): { mimeType: string; data: string } {
+  const matched = image.dataUrl.match(/^data:([^;,]+);base64,(.*)$/);
+  return {
+    mimeType: matched?.[1] || image.mimeType || 'image/jpeg',
+    data: matched?.[2] || image.dataUrl.split(',')[1] || image.dataUrl,
+  };
+}
+
+/**
+ * 构建 Gemini GenerateContent API 所需的提示词优化请求体。
+ * @param input 包含参考图和提示词的请求参数。
+ * @param userText 已组合完成的用户提示词正文。
+ * @returns 可直接透传给 Gemini 服务的请求对象。
+ */
+function buildGeminiOptimizeRequest(input: StreamPromptOptimizeInput, userText: string) {
+  return {
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: userText },
+        ...((input.images || []).map(image => ({ inlineData: toGeminiInlineData(image) }))),
+      ],
+    }],
+  };
+}
+
+/**
+ * 使用当前选择的协议向上游发起一次提示词优化流式请求。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @param input 包含模型协议、鉴权和提示词内容的请求参数。
+ * @param callbacks 接收流式文本和错误的回调集合。
+ * @param controller 用于超时和用户取消的请求控制器。
+ * @param onOutput 在收到首个可展示文本片段时标记本次请求已开始输出。
+ * @returns 请求正常结束时无返回值；上游或流式解析失败时抛出错误。
+ */
 async function runAttempt(
   baseUrl: string,
   input: StreamPromptOptimizeInput,
   callbacks: StreamPromptOptimizeCallbacks,
   controller: AbortController,
+  onOutput: () => void,
 ): Promise<void> {
   const signal = controller.signal;
-  const systemPrompt = SYSTEM_PROMPTS[input.mode];
-  const hasImages = input.images && input.images.length > 0;
-
-  const content: OptimizeContentPart[] = [];
-
-  let userText = `${systemPrompt}\n\n---\n\n`;
-
-  // agent 模式：如有上下文参考，追加在用户输入前
-  if (input.context) {
-    userText += `${input.context}\n\n---\n\n`;
-  }
-
-  userText += `用户输入：\n${input.prompt}`;
-  content.push({ type: 'input_text', text: userText });
-
-  // 图生图/动图模式附带参考图
-  if (hasImages) {
-    for (const img of input.images!) {
-      content.push({
-        type: 'input_image',
-        image_url: img.dataUrl,
-      });
-    }
-  }
-
-  const body = {
-    model: OPTIMIZE_MODEL,
-    stream: true,
-    reasoning: { effort: 'low' as const },
-    input: [
-      {
-        role: 'user',
-        content,
-      },
-    ],
-  };
+  const userText = buildOptimizeUserText(input);
+  const requestBody = input.protocol === 'google'
+    ? buildGeminiOptimizeRequest(input, userText)
+    : buildOpenAiOptimizeRequest(input, userText);
 
   const timeoutId = window.setTimeout(() => {
     if (!signal.aborted) {
@@ -234,12 +313,12 @@ async function runAttempt(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        protocol: 'openai',
+        protocol: input.protocol,
         baseUrl,
         apiKey: input.apiKey,
-        model: OPTIMIZE_MODEL,
+        model: input.model,
         stream: true,
-        requestBody: body,
+        requestBody,
       }),
       signal,
     });
@@ -267,29 +346,47 @@ async function runAttempt(
         return;
       }
 
-      let payload: SsePayload;
+      let payload: SsePayload | GeminiStreamChunk;
       try {
-        payload = JSON.parse(event.data);
+        payload = JSON.parse(event.data) as SsePayload | GeminiStreamChunk;
       } catch {
         return;
       }
 
-      const eventType = payload.type || event.event || '';
+      if (input.protocol === 'google') {
+        const chunk = payload as GeminiStreamChunk;
+        if (chunk.error?.message) throw new Error(chunk.error.message);
+        if (chunk.promptFeedback?.blockReason) throw new Error(`内容被拦截: ${chunk.promptFeedback.blockReason}`);
+        for (const candidate of chunk.candidates || []) {
+          for (const part of candidate.content?.parts || []) {
+            if (part.thought === true || typeof part.text !== 'string' || !part.text) continue;
+            accumulated += part.text;
+            onOutput();
+            callbacks.onDelta(part.text);
+          }
+        }
+        return;
+      }
+
+      const openAiPayload = payload as SsePayload;
+      const eventType = openAiPayload.type || event.event || '';
 
       if (eventType === 'response.output_text.delta') {
-        const delta = typeof payload.delta === 'string' ? payload.delta : '';
+        const delta = typeof openAiPayload.delta === 'string' ? openAiPayload.delta : '';
         if (delta) {
           accumulated += delta;
+          onOutput();
           callbacks.onDelta(delta);
         }
         return;
       }
 
       if (eventType === 'response.output_text.done') {
-        if (typeof payload.text === 'string' && payload.text.length > accumulated.length) {
-          const tail = payload.text.slice(accumulated.length);
+        if (typeof openAiPayload.text === 'string' && openAiPayload.text.length > accumulated.length) {
+          const tail = openAiPayload.text.slice(accumulated.length);
           if (tail) {
-            accumulated = payload.text;
+            accumulated = openAiPayload.text;
+            onOutput();
             callbacks.onDelta(tail);
           }
         }
@@ -297,11 +394,12 @@ async function runAttempt(
       }
 
       if (eventType === 'response.completed') {
-        const fullText = payload.response?.output_text;
+        const fullText = openAiPayload.response?.output_text;
         if (typeof fullText === 'string' && fullText.length > accumulated.length) {
           const tail = fullText.slice(accumulated.length);
           if (tail) {
             accumulated = fullText;
+            onOutput();
             callbacks.onDelta(tail);
           }
         }
@@ -310,11 +408,16 @@ async function runAttempt(
       }
 
       if (eventType === 'error' || eventType === 'response.error') {
-        const message = payload.error?.message || payload.message || '模型返回错误';
+        const message = openAiPayload.error?.message || openAiPayload.message || '模型返回错误';
         throw new Error(message);
       }
     });
 
+    if (signal.aborted) {
+      const timeoutError = getTimeoutAbortError(signal);
+      if (timeoutError) throw timeoutError;
+      return;
+    }
     fireDone();
   } finally {
     window.clearTimeout(timeoutId);
@@ -322,6 +425,22 @@ async function runAttempt(
 }
 
 // ===== 工具函数 =====
+
+/**
+ * 判断请求是否因客户端设置的优化超时而被取消。
+ * @param signal 当前流式请求使用的中止信号。
+ * @returns 超时对应的错误对象；非超时取消时返回 null。
+ */
+function getTimeoutAbortError(signal: AbortSignal): Error | null {
+  const reason = signal.reason as unknown;
+  if (!reason || typeof reason !== 'object' || !('name' in reason) || reason.name !== 'TimeoutError') {
+    return null;
+  }
+  if (reason instanceof Error) return reason;
+  const error = new Error('优化请求超时');
+  error.name = 'TimeoutError';
+  return error;
+}
 
 async function readHttpError(response: Response): Promise<Error> {
   let detail = '';

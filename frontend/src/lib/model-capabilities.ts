@@ -3,11 +3,11 @@ import {
   getDefaultModelId,
   getModelImageLimits,
   getModelOptions,
-  isGptImageModel,
   type ModelId,
 } from '@/lib/gemini-config';
 import { getImageModelById, getImageModelOutputSizes, loadRegistry, type ImageModelConfig } from '@/lib/flyreq-models';
 import type { AspectRatio, OutputSize, RefImageData, StoredJob } from '@/lib/job-store';
+import { getEffectiveImagePrompt } from '@/lib/prompt-variants';
 
 export const MAX_PARALLEL_COUNT = 20;
 export type ParallelCount = number;
@@ -503,7 +503,7 @@ export function isRetryLayoutCompatible(model: ModelId, outputSize: OutputSize, 
 export function getCompatibleRetryData(job: StoredJob): RetryData {
   const model = normalizeModel(job.model);
   const modelCompatible = model === job.model;
-  const supportsTemperature = !isGptImageModel(model);
+  const supportsTemperature = getSupportsTemperature(model);
   const modelLimits = getModelImageLimits();
   const maxRefs = modelLimits[model]?.max || getModelConfig(model)?.maxRefImages || 1;
   const defaultLayout = getDefaultRetryLayout(model);
@@ -514,7 +514,6 @@ export function getCompatibleRetryData(job: StoredJob): RetryData {
     ? normalizeCustomImageSize(job.custom_size, getCustomSizeMaxSide(model))
     : undefined;
   const temperature = supportsTemperature && typeof job.temperature === 'number' ? job.temperature : 1;
-  const parallelCount = normalizeParallelCount(job.parallelCount);
   const advancedParams = getGptImageAdvancedParamsForModel(model, {
     quality: job.gptImageQuality,
     style: job.gptImageStyle,
@@ -524,14 +523,14 @@ export function getCompatibleRetryData(job: StoredJob): RetryData {
 
   return {
     mode: job.mode,
-    prompt: job.originalPrompt || job.prompt,
+    prompt: getEffectiveImagePrompt(job.prompt, job.promptVariants, job.effectivePrompt),
     model,
     outputSize,
     aspectRatio,
     customSize,
     temperature,
-    parallelCount,
-    promptVariants: job.promptVariants,
+    parallelCount: 1,
+    promptVariants: undefined,
     gptImageQuality: advancedParams.quality,
     gptImageStyle: advancedParams.style,
     gptImageBackground: advancedParams.background,
@@ -540,8 +539,13 @@ export function getCompatibleRetryData(job: StoredJob): RetryData {
   };
 }
 
+/**
+ * 判断图片模型是否明确支持温度参数。
+ * @param model 图片模型的内部标识。
+ * @returns 仅当模型配置启用温度能力时返回 true。
+ */
 export function getSupportsTemperature(model: ModelId): boolean {
-  return !isGptImageModel(model);
+  return getModelConfig(model)?.supportsTemperature === true;
 }
 
 // ===== Agent 提案参数合法化 =====

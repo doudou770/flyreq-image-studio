@@ -49,7 +49,7 @@ export interface CreateFlyreqTaskInput {
   outputSize: OutputSize;
   customSize?: string;
   aspectRatio: AspectRatio;
-  temperature: number;
+  temperature?: number;
   model: string;
   gptImageQuality?: GptImageQuality;
   gptImageStyle?: GptImageStyle;
@@ -58,6 +58,8 @@ export interface CreateFlyreqTaskInput {
   streamImages?: boolean;
   parallelCount: number;
   promptVariants?: string[];
+  /** 每张拆分图片实际发送给上游的完整提示词。 */
+  effectivePrompts?: string[];
   images: ImageReference[];
 }
 
@@ -321,7 +323,7 @@ export async function checkModelsAvailability(
   }
 }
 
-export function resolveImageTaskProvider(modelId: string): { apiKey: string; baseUrl: string; protocol: ProviderProtocol; modelId: string; imageApiFlavor?: ImageApiFlavor; streamImages?: boolean } {
+export function resolveImageTaskProvider(modelId: string): { apiKey: string; baseUrl: string; protocol: ProviderProtocol; modelId: string; imageApiFlavor?: ImageApiFlavor; streamImages?: boolean; supportsTemperature?: boolean } {
   const registry = loadRegistry();
   const model = getImageModelById(registry, modelId);
   if (!model) throw new Error(`未找到图片模型配置: ${modelId}`);
@@ -333,6 +335,7 @@ export function resolveImageTaskProvider(modelId: string): { apiKey: string; bas
     modelId: getResolvedImageModelId(model),
     imageApiFlavor: getImageApiFlavor(model),
     streamImages: model.protocol === 'openai' ? Boolean(model.streamImages) : false,
+    supportsTemperature: model.protocol === 'google' && model.supportsTemperature === true,
   };
 }
 

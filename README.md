@@ -119,6 +119,7 @@ URL 只需要一个 `provider` 参数，内容是 JSON 字符串。支持裸 JSO
   "apiKey": "YOUR_API_KEY",
   "maxRefImages": 16,
   "maxOutputSize": "4K",
+  "supportsTemperature": false,
   "streamImages": true
 }
 ```
@@ -151,6 +152,7 @@ JSON 字段：
 | `apiKey` | API Key |
 | `maxRefImages` | 最大参考图数量 |
 | `maxOutputSize` | 最大分辨率：`512`、`1K`、`2K`、`4K` |
+| `supportsTemperature` | 可选，仅 Google 图片协议有效；为 `true` 时显示并发送 `temperature` 参数 |
 | `streamImages` | 可选，仅 OpenAI Images 协议有效；为 `true` 时发送流式图片请求 |
 
 匹配规则：优先按 `modelKey` 更新已有模型；没有 `modelKey` 时，按 `name + modelId + baseUrl` 匹配；仍未匹配则新增模型。配置完整时会同时设为文生图和图生图默认模型。注意：`apiKey` 会短暂出现在浏览器地址栏中，FlyReq Image 会在读取后立即清理 URL。

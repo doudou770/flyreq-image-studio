@@ -1091,12 +1091,20 @@ function validateCreatePayload(body) {
   if (typeof body.model !== 'string' || body.model.trim().length === 0) throw new Error('模型名称不能为空');
   if (!Number.isInteger(body.parallelCount) || body.parallelCount < 1 || body.parallelCount > MAX_PARALLEL_COUNT) throw new Error('并发数量无效');
   if (body.imageApiFlavor !== undefined && !IMAGE_API_FLAVORS.has(body.imageApiFlavor)) throw new Error('图片 API 类型无效');
+  if (body.temperature !== undefined && (!Number.isFinite(body.temperature) || body.temperature < 0 || body.temperature > 2)) throw new Error('温度参数无效');
 
   if (!Array.isArray(body.images)) body.images = [];
   if (!Array.isArray(body.promptVariants)) {
     body.promptVariants = [];
   } else {
     body.promptVariants = body.promptVariants
+      .slice(0, body.parallelCount)
+      .map(item => typeof item === 'string' ? item.trim() : '');
+  }
+  if (!Array.isArray(body.effectivePrompts)) {
+    body.effectivePrompts = [];
+  } else {
+    body.effectivePrompts = body.effectivePrompts
       .slice(0, body.parallelCount)
       .map(item => typeof item === 'string' ? item.trim() : '');
   }
@@ -1220,9 +1228,13 @@ function createTaskBatch(body, req) {
   const now = new Date().toISOString();
   const tasks = Array.from({ length: body.parallelCount }, (_, index) => {
     const promptVariant = body.promptVariants[index];
+    const effectivePrompt = body.effectivePrompts[index];
+    const requestBody = effectivePrompt
+      ? { ...body, prompt: effectivePrompt, promptVariants: [] }
+      : body;
     return {
       taskId: randomUUID(),
-      requestForDb: buildTaskRequestForDb(body, 1, promptVariant ? [promptVariant] : []),
+      requestForDb: buildTaskRequestForDb(requestBody, 1, effectivePrompt ? [] : (promptVariant ? [promptVariant] : [])),
     };
   });
   const tx = db.transaction(() => {
@@ -1754,7 +1766,7 @@ async function generateFlyreqGeminiImage(apiKey, request, options = {}) {
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
       generationConfig: {
-        temperature: request.temperature,
+        ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
         responseModalities: ['IMAGE'],
         imageConfig: { imageSize: request.outputSize, aspectRatio: request.aspectRatio },
       },
@@ -2293,7 +2305,13 @@ async function handleApi(req, res, pathname) {
         const authHeaders = { 'Content-Type': 'application/json' };
 
         if (protocol === 'google') {
-          targetUrl = appendProtocolApiPath('google', normalizedBaseUrl, `/v1beta/models/${encodeURIComponent(model || '')}:streamGenerateContent?alt=sse`);
+          targetUrl = appendProtocolApiPath(
+            'google',
+            normalizedBaseUrl,
+            stream
+              ? `/v1beta/models/${encodeURIComponent(model || '')}:streamGenerateContent?alt=sse`
+              : `/v1beta/models/${encodeURIComponent(model || '')}:generateContent`,
+          );
           authHeaders['x-goog-api-key'] = apiKey;
           authHeaders['Authorization'] = `Bearer ${apiKey}`;
         } else {

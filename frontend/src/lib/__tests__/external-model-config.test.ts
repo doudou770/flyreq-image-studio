@@ -50,6 +50,23 @@ describe('external model config URL parser', () => {
     });
   });
 
+  it('parses Gemini temperature capability and the Lite preset from a provider URL', () => {
+    const provider = encodeURIComponent(JSON.stringify({
+      type: 'image',
+      preset: 'gemini-3.1-flash-lite-image',
+      provider: 'google',
+      modelId: 'gemini-3.1-flash-lite-image',
+      supportsTemperature: false,
+    }));
+    const url = new URL(`https://example.com/zh/?provider=${provider}`);
+
+    expect(parseExternalModelConfig(url)).toMatchObject({
+      preset: 'gemini-3.1-flash-lite-image',
+      protocol: 'google',
+      supportsTemperature: false,
+    });
+  });
+
   it('removes external config params and hash from URL', () => {
     const provider = encodeURIComponent(JSON.stringify({ type: 'image', name: 'FlyReq', apiKey: 'secret' }));
     const url = new URL(`https://example.com/zh/?provider=${provider}&keep=1#debug`);

@@ -361,6 +361,7 @@ export function useAgentChat() {
         previewDataUrl,
         describeSignal,
         configured.baseUrl,
+        configured.protocol,
       );
     } catch {
       description = '(图片描述生成失败)';
@@ -380,7 +381,7 @@ export function useAgentChat() {
     };
     registerImage(record);
     return record;
-  }, [nextImgId, registerImage]);
+  }, [getAgentTextModelConfig, nextImgId, registerImage]);
 
   /** 重新生成已有图片的描述 */
   const redescribeImage = useCallback(async (imgId: string): Promise<string> => {
@@ -393,6 +394,7 @@ export function useAgentChat() {
       record.thumbnail,
       undefined,
       configured.baseUrl,
+      configured.protocol,
     );
     const description = newDescription || '(无描述)';
     const updated: AgentImageRecord = { ...record, description };
@@ -414,6 +416,7 @@ export function useAgentChat() {
     const handle = streamAgentChat(
       {
         apiKey: configured.apiKey,
+        protocol: configured.protocol,
         model: configured.modelId,
         history,
         webSearch: webSearchEnabled,

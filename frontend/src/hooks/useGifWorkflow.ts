@@ -219,8 +219,14 @@ export function useGifWorkflow(): UseGifWorkflowResult {
     subscriptionRef.current = unsubscribe;
   }, [clearSubscription, finalizeGrid, persistJob]);
 
+  /**
+   * 挂载时恢复本地 GIF 任务，并在组件卸载后阻止旧异步请求恢复订阅或写入状态。
+   * @returns 清理函数会标记初始化流程已取消。
+   */
   useEffect(() => {
+    let cancelled = false;
     queueMicrotask(() => {
+      if (cancelled) return;
       const initial = loadActiveGifJob();
       if (!initial) {
         setIsApiKeyMissing(false);
@@ -230,13 +236,16 @@ export function useGifWorkflow(): UseGifWorkflowResult {
       setJobState(initial);
 
     if (initial.gridImageRef) {
-      void loadGridImageUrl(initial).then(setGridImageUrl);
+      void loadGridImageUrl(initial).then(url => {
+        if (!cancelled) setGridImageUrl(url);
+      });
     }
 
     if (initial.status === 'generating_grid' && initial.serverTaskId) {
       setStartedAt(Date.parse(initial.createdAt) || Date.now());
       getFlyreqTask(initial.serverTaskId)
         .then(task => {
+          if (cancelled) return;
           const current = jobRef.current;
           if (!current || current.serverTaskId !== initial.serverTaskId) return;
           if (task.status === 'completed') {
@@ -252,12 +261,15 @@ export function useGifWorkflow(): UseGifWorkflowResult {
             subscribeServerTask(initial.serverTaskId!);
           }
         })
-        .catch(() => subscribeServerTask(initial.serverTaskId!));
+        .catch(() => {
+          if (!cancelled) subscribeServerTask(initial.serverTaskId!);
+        });
     }
 
       setIsApiKeyMissing(false);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 恢复流程仅应在挂载时运行，所用回调在本实例生命周期内保持稳定。
   }, []);
 
   useEffect(() => {

@@ -17,6 +17,7 @@ import {
   normalizeGptImageStyle,
   type AgentModelCatalogEntry,
 } from '@/lib/model-capabilities';
+import type { ProviderProtocol } from '@/lib/flyreq-models';
 
 import { readSseStream } from '@/lib/sse-stream-parser';
 
@@ -38,6 +39,8 @@ export interface AgentCatalogEntry {
 
 export interface StreamAgentInput {
   apiKey: string;
+  /** 所选文本模型的上游协议。 */
+  protocol: ProviderProtocol;
   model: string;
   /** 历史消息（不含本轮，需按时间正序传入） */
   history: AgentMessage[];
@@ -175,6 +178,13 @@ function parseProposalArguments(raw: string): AgentProposal | null {
   }
 }
 
+/**
+ * 使用用户选择的文本模型发起一次 Agent 流式对话。
+ * @param input 包含模型协议、鉴权、历史消息和工具目录的请求参数。
+ * @param callbacks 接收文本、推理摘要、提案和错误状态的回调集合。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @returns 可取消本次对话并等待其结束的句柄。
+ */
 export function streamAgentChat(
   input: StreamAgentInput,
   callbacks: StreamAgentCallbacks,
@@ -197,6 +207,14 @@ export function streamAgentChat(
   };
 }
 
+/**
+ * 在可恢复错误时重试 Agent 流式请求，并在每次重试前通知界面清空旧输出。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @param input 包含模型协议、鉴权和聊天上下文的请求参数。
+ * @param callbacks 接收流式状态的回调集合。
+ * @param signal 用户取消请求使用的中止信号。
+ * @returns 流式请求成功结束时无返回值；最终失败时抛出错误。
+ */
 async function runAgentStreamWithRetry(
   baseUrl: string,
   input: StreamAgentInput,
@@ -227,12 +245,25 @@ async function runAgentStreamWithRetry(
   throw lastError || new Error('模型请求失败');
 }
 
+/**
+ * 按文本模型协议选择 OpenAI 或 Gemini 流式对话实现。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @param input 包含模型协议、鉴权和聊天上下文的请求参数。
+ * @param callbacks 接收文本、提案和错误状态的回调集合。
+ * @param signal 当前尝试的取消与超时信号。
+ * @returns 流结束后无返回值；超时或上游错误时抛出错误。
+ */
 async function runAgentStream(
   baseUrl: string,
   input: StreamAgentInput,
   callbacks: StreamAgentCallbacks,
   signal: AbortSignal,
 ): Promise<void> {
+  if (input.protocol === 'google') {
+    await runGeminiAgentStream(baseUrl, input, callbacks, signal);
+    return;
+  }
+
   const body = {
     model: input.model || AGENT_TEXT_MODEL_FALLBACK,
     stream: true,
@@ -368,32 +399,205 @@ async function runAgentStream(
     }
   });
 
+  if (signal.aborted) {
+    if (signal.reason instanceof AgentRequestTimeoutError) throw signal.reason;
+    return;
+  }
+  fireDone();
+}
+
+interface GeminiAgentPart {
+  text?: string;
+  thought?: boolean;
+  functionCall?: { name?: string; args?: unknown };
+}
+
+interface GeminiAgentStreamChunk {
+  candidates?: Array<{ content?: { parts?: GeminiAgentPart[] } }>;
+  promptFeedback?: { blockReason?: string };
+  error?: { message?: string };
+}
+
+/**
+ * 将 Agent 聊天历史转换为 Gemini GenerateContent 的角色消息格式。
+ * @param history 按时间正序排列的 Agent 历史消息。
+ * @returns Gemini 可接受的 user/model 消息数组。
+ */
+function buildGeminiAgentContents(history: AgentMessage[]) {
+  return history
+    .filter(message => message.role !== 'system-note' && message.role !== 'context-divider' && message.text.trim().length > 0)
+    .map(message => ({
+      role: message.role === 'user' ? 'user' : 'model',
+      parts: [{ text: message.text }],
+    }));
+}
+
+/**
+ * 构建 Gemini 原生函数调用声明，保持提案字段与 OpenAI Responses 版本一致。
+ * @param webSearch 是否为本轮对话启用 Google 搜索工具。
+ * @returns Gemini GenerateContent 的工具配置数组。
+ */
+function buildGeminiAgentTools(webSearch: boolean) {
+  const functionTool = {
+    functionDeclarations: [{
+      name: PROPOSE_IMAGE_ACTION_TOOL.name,
+      description: PROPOSE_IMAGE_ACTION_TOOL.description,
+      parametersJsonSchema: PROPOSE_IMAGE_ACTION_TOOL.parameters,
+    }],
+  };
+  return webSearch ? [functionTool, { googleSearch: {} }] : [functionTool];
+}
+
+/**
+ * 构建 Gemini Agent 流式对话的请求体。
+ * @param input 包含历史、图片目录、模型目录和联网配置的输入参数。
+ * @returns 可直接发送至 Gemini GenerateContent 端点的请求对象。
+ */
+function buildGeminiAgentRequest(input: StreamAgentInput) {
+  return {
+    systemInstruction: { parts: [{ text: buildInstructions(input.catalog, input.modelCatalog) }] },
+    contents: buildGeminiAgentContents(input.history),
+    tools: buildGeminiAgentTools(Boolean(input.webSearch)),
+    toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+  };
+}
+
+/**
+ * 将 Gemini 函数调用参数转换成统一的提案 JSON 文本。
+ * @param value Gemini 返回的函数调用参数。
+ * @returns 可交给提案解析器处理的 JSON 字符串；无有效参数时返回空字符串。
+ */
+function stringifyGeminiFunctionArgs(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 使用 Gemini 原生流式 API 执行 Agent 对话并解析文本和提案函数调用。
+ * @param baseUrl Gemini 服务基础地址。
+ * @param input 包含模型、鉴权和聊天上下文的输入参数。
+ * @param callbacks 接收文本、提案和错误状态的回调集合。
+ * @param signal 当前请求的取消与超时信号。
+ * @returns 流结束后无返回值；超时或上游错误时抛出错误。
+ */
+async function runGeminiAgentStream(
+  baseUrl: string,
+  input: StreamAgentInput,
+  callbacks: StreamAgentCallbacks,
+  signal: AbortSignal,
+): Promise<void> {
+  const response = await fetch('/api/flyreq/proxy/text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      protocol: 'google',
+      baseUrl,
+      apiKey: input.apiKey,
+      model: input.model,
+      stream: true,
+      requestBody: buildGeminiAgentRequest(input),
+    }),
+    signal,
+  });
+
+  if (!response.ok) throw await readHttpError(response);
+  if (!response.body) throw new Error('响应没有可读流');
+
+  let accumulated = '';
+  let toolArgs = '';
+  let fired = false;
+  const fireDone = () => {
+    if (fired) return;
+    fired = true;
+    callbacks.onDone(accumulated, parseProposalArguments(toolArgs));
+  };
+
+  await readSseStream(response.body, signal, event => {
+    if (!event.data || event.data === '[DONE]') return;
+    let chunk: GeminiAgentStreamChunk;
+    try {
+      chunk = JSON.parse(event.data) as GeminiAgentStreamChunk;
+    } catch {
+      return;
+    }
+    if (chunk.error?.message) throw new Error(chunk.error.message);
+    if (chunk.promptFeedback?.blockReason) throw new Error(`内容被拦截: ${chunk.promptFeedback.blockReason}`);
+
+    for (const candidate of chunk.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        if (part.functionCall?.name === PROPOSE_IMAGE_ACTION_TOOL.name) {
+          const args = stringifyGeminiFunctionArgs(part.functionCall.args);
+          if (args) toolArgs = args;
+          continue;
+        }
+        // Gemini 的 thought 片段属于内部推理，不展示给用户。
+        if (part.thought === true || typeof part.text !== 'string' || !part.text) continue;
+        accumulated += part.text;
+        callbacks.onDelta(part.text);
+      }
+    }
+  });
+
+  if (signal.aborted) {
+    if (signal.reason instanceof AgentRequestTimeoutError) throw signal.reason;
+    return;
+  }
   fireDone();
 }
 
 // ===== 非流式视觉描述 =====
 
+/**
+ * 使用用户选择的文本模型为图片生成简短描述。
+ * @param apiKey 上游 API 密钥。
+ * @param model 文本模型标识。
+ * @param imageDataUrl 待描述图片的 Data URL。
+ * @param signal 可选的取消信号。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @param protocol 文本模型的上游协议。
+ * @returns 图片描述文本；模型无文本输出时返回空字符串。
+ */
 export async function describeImage(
   apiKey: string,
   model: string,
   imageDataUrl: string,
   signal?: AbortSignal,
   baseUrl: string = '',
+  protocol: ProviderProtocol = 'openai',
 ): Promise<string> {
   return runAgentRequestWithRetry(
-    attemptSignal => requestImageDescription(baseUrl, apiKey, model, imageDataUrl, attemptSignal),
+    attemptSignal => requestImageDescription(baseUrl, apiKey, model, imageDataUrl, protocol, attemptSignal),
     signal,
     AGENT_IMAGE_DESCRIBE_ATTEMPT_TIMEOUT_MS,
   );
 }
 
+/**
+ * 按协议请求一次图片描述，并将超时处理交由上层重试器统一管理。
+ * @param baseUrl 文本模型服务的基础地址。
+ * @param apiKey 上游 API 密钥。
+ * @param model 文本模型标识。
+ * @param imageDataUrl 待描述图片的 Data URL。
+ * @param protocol 文本模型的上游协议。
+ * @param signal 当前请求的取消与超时信号。
+ * @returns 图片描述文本；模型无文本输出时返回空字符串。
+ */
 async function requestImageDescription(
   baseUrl: string,
   apiKey: string,
   model: string,
   imageDataUrl: string,
+  protocol: ProviderProtocol,
   signal: AbortSignal,
 ): Promise<string> {
+  if (protocol === 'google') {
+    return requestGeminiImageDescription(baseUrl, apiKey, model, imageDataUrl, signal);
+  }
   const body = {
     model: model || AGENT_TEXT_MODEL_FALLBACK,
     stream: false,
@@ -446,6 +650,68 @@ async function requestImageDescription(
     .trim();
 
   return fromOutput || '';
+}
+
+/**
+ * 将图片 Data URL 拆分为 Gemini 内联图片所需的 MIME 类型和 Base64 数据。
+ * @param imageDataUrl 原始图片 Data URL 或 Base64 文本。
+ * @returns Gemini inlineData 结构所需的 MIME 类型与图片正文。
+ */
+function toGeminiInlineImage(imageDataUrl: string): { mimeType: string; data: string } {
+  const matched = imageDataUrl.match(/^data:([^;,]+);base64,(.*)$/);
+  return {
+    mimeType: matched?.[1] || 'image/jpeg',
+    data: matched?.[2] || imageDataUrl.split(',')[1] || imageDataUrl,
+  };
+}
+
+/**
+ * 使用 Gemini 非流式 GenerateContent 接口生成图片文字描述。
+ * @param baseUrl Gemini 服务基础地址。
+ * @param apiKey 上游 API 密钥。
+ * @param model Gemini 模型标识。
+ * @param imageDataUrl 待描述图片的 Data URL。
+ * @param signal 当前请求的取消与超时信号。
+ * @returns 去除空白后的图片描述；模型未输出文本时返回空字符串。
+ */
+async function requestGeminiImageDescription(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  imageDataUrl: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const response = await fetch('/api/flyreq/proxy/text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      protocol: 'google',
+      baseUrl,
+      apiKey,
+      model,
+      stream: false,
+      requestBody: {
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: AGENT_IMAGE_DESCRIBE_PROMPT },
+            { inlineData: toGeminiInlineImage(imageDataUrl) },
+          ],
+        }],
+      },
+    }),
+    signal,
+  });
+  if (!response.ok) throw await readHttpError(response);
+
+  const data = await response.json().catch(() => null) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  } | null;
+  return data?.candidates
+    ?.flatMap(candidate => candidate.content?.parts || [])
+    .map(part => typeof part.text === 'string' ? part.text : '')
+    .join('')
+    .trim() || '';
 }
 
 // ===== 工具函数 =====

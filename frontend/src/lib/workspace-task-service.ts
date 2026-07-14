@@ -17,6 +17,7 @@ import {
 } from '@/lib/model-capabilities';
 import { generateUUID } from '@/lib/uuid';
 import { downloadAndStoreImages, type DownloadResult, type ImageDownloadProgressItem } from '@/lib/image-downloader';
+import { composeEffectiveImagePrompt } from '@/lib/prompt-variants';
 
 export interface TextToImageSubmitInput {
   prompts: string[];
@@ -217,6 +218,7 @@ function createBaseJob(
     gptImageOutputFormat: advancedParams.outputFormat,
     parallelCount,
     promptVariants,
+    effectivePrompt: composeEffectiveImagePrompt(prompt, promptVariants?.[0]),
     created_at: new Date().toISOString(),
     refImages,
   };
@@ -488,7 +490,7 @@ export async function submitTextToImage(
           outputSize: input.outputSize,
           customSize: input.customSize,
           aspectRatio: input.aspectRatio,
-          temperature: input.temperature,
+          ...(provider.supportsTemperature ? { temperature: input.temperature } : {}),
           model: provider.modelId,
           gptImageQuality: input.gptImageQuality,
           gptImageStyle: input.gptImageStyle,
@@ -497,6 +499,10 @@ export async function submitTextToImage(
           streamImages: provider.streamImages,
           parallelCount: input.parallelCount,
           promptVariants: input.promptVariants,
+          effectivePrompts: Array.from(
+            { length: input.parallelCount },
+            (_, imageIndex) => composeEffectiveImagePrompt(prompt, input.promptVariants?.[imageIndex]),
+          ),
           images: [],
         });
         jobs.forEach((job, imageIndex) => {
@@ -578,7 +584,7 @@ export async function submitImageToImage(
         outputSize: input.outputSize,
         customSize: input.customSize,
         aspectRatio: input.aspectRatio,
-        temperature: input.temperature,
+        ...(provider.supportsTemperature ? { temperature: input.temperature } : {}),
         model: provider.modelId,
         gptImageQuality: input.gptImageQuality,
         gptImageStyle: input.gptImageStyle,
@@ -587,6 +593,10 @@ export async function submitImageToImage(
         streamImages: provider.streamImages,
         parallelCount: input.parallelCount,
         promptVariants: input.promptVariants,
+        effectivePrompts: Array.from(
+          { length: input.parallelCount },
+          (_, imageIndex) => composeEffectiveImagePrompt(input.prompt, input.promptVariants?.[imageIndex]),
+        ),
         images: imageReferences,
       });
       jobs.forEach((job, imageIndex) => {

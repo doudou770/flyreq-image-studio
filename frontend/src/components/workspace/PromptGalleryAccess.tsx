@@ -18,8 +18,11 @@ export function usePromptGalleryAccess(
 
   useEffect(() => {
     if (mode === '2') return;
-
-    setShowPromptGallery(mode === '1');
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setShowPromptGallery(mode === '1');
+    });
+    return () => { cancelled = true; };
   }, [mode]);
 
   const handlePromptGalleryEntry = useCallback(() => {
