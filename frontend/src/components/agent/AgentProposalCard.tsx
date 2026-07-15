@@ -1,12 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Check, ImagePlus, Layers, Maximize, Pencil, RectangleHorizontal, Thermometer, Wand2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, FileText, ImagePlus, Layers, Maximize, Pencil, RectangleHorizontal, Save, Sparkles, Thermometer, Wand2, X, Zap } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { CustomSizeDialog } from '@/components/CustomSizeDialog';
 import { GptImageAdvancedParamsControl } from '@/components/GptImageAdvancedParamsControl';
+import { QuickPromptDialog } from '@/components/QuickPromptDialog';
+import { PromptOptimizeDialog } from '@/components/PromptOptimizeDialog';
+import { AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
+import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import {
   Popover,
   PopoverContent,
@@ -41,6 +46,11 @@ import {
   type ParallelCount,
 } from '@/lib/model-capabilities';
 import type { AgentImageRecord, AgentProposal } from '@/lib/agent-chat-config';
+import { addTextAsset, type TextAsset } from '@/lib/asset-store';
+import { dispatchImageActionToast } from '@/lib/image-actions';
+import { streamPromptOptimize, type StreamPromptOptimizeHandle } from '@/lib/prompt-optimize-client';
+import { requireDefaultConfiguredTextModel } from '@/lib/model-endpoints';
+import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
 
 export interface AgentApproveParams {
   outputSize: OutputSize;
@@ -86,6 +96,15 @@ export function AgentProposalCard({
   const [tempPopoverOpen, setTempPopoverOpen] = useState(false);
   const [parallelPopoverOpen, setParallelPopoverOpen] = useState(false);
   const [customSizeDialogOpen, setCustomSizeDialogOpen] = useState(false);
+  const [quickPromptOpen, setQuickPromptOpen] = useState(false);
+  const [textAssetPickerOpen, setTextAssetPickerOpen] = useState(false);
+  const [pendingTextAsset, setPendingTextAsset] = useState<TextAsset | null>(null);
+  const [optimizeOpen, setOptimizeOpen] = useState(false);
+  const [optimizedText, setOptimizedText] = useState('');
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizeError, setOptimizeError] = useState<string | null>(null);
+  const optimizeHandleRef = useRef<StreamPromptOptimizeHandle | null>(null);
+  const { enabled: promptOptimizeEnabled } = usePromptOptimizeSetting();
 
   const imageMap = useMemo(() => new Map(images.map(img => [img.imgId, img])), [images]);
 
@@ -276,6 +295,106 @@ export function AgentProposalCard({
     setTimeout(() => setParallelPopoverOpen(false), 0);
   };
 
+  /**
+   * 使用当前默认文本模型流式优化待确认的新图提示词。
+   * @returns 未配置优化文本模型时显示错误提示；成功时打开优化结果对话框。
+   */
+  const handleOptimize = () => {
+    if (!prompt.trim()) return;
+    let textModel;
+    try {
+      textModel = requireDefaultConfiguredTextModel('promptOptimize');
+    } catch (error) {
+      dispatchImageActionToast(error instanceof Error ? error.message : '请先完成默认文本模型配置', 'error');
+      return;
+    }
+
+    optimizeHandleRef.current?.abort();
+    setOptimizedText('');
+    setOptimizeError(null);
+    setOptimizing(true);
+    setOptimizeOpen(true);
+    optimizeHandleRef.current = streamPromptOptimize(
+      {
+        apiKey: textModel.apiKey,
+        protocol: textModel.protocol,
+        model: textModel.modelId,
+        mode: 'text-to-image',
+        prompt: prompt.trim(),
+      },
+      {
+        onDelta(token) { setOptimizedText(prev => prev + token); },
+        onDone() { setOptimizing(false); },
+        onError(error) { setOptimizeError(error.message); setOptimizing(false); },
+      },
+      textModel.baseUrl,
+    );
+  };
+
+  /**
+   * 取消正在执行的提示词优化并清理优化对话框状态。
+   * @returns 无返回值。
+   */
+  const handleOptimizeCancel = () => {
+    optimizeHandleRef.current?.abort();
+    optimizeHandleRef.current = null;
+    setOptimizing(false);
+    setOptimizedText('');
+    setOptimizeError(null);
+  };
+
+  /**
+   * 接受提示词优化结果并覆盖当前待确认的新图提示词。
+   * @returns 无返回值。
+   */
+  const handleOptimizeAccept = () => {
+    if (optimizedText) setPrompt(optimizedText);
+    optimizeHandleRef.current = null;
+    setOptimizedText('');
+    setOptimizeError(null);
+  };
+
+  /**
+   * 将指定提示词素材应用到当前待确认的新图提示词。
+   * @param asset 用户从素材库选择的提示词素材。
+   * @returns 无返回值。
+   */
+  const applyTextAsset = (asset: TextAsset) => {
+    setPrompt(asset.content);
+    setPendingTextAsset(null);
+  };
+
+  /**
+   * 在覆盖现有提示词前确认用户从素材库选择的提示词内容。
+   * @param asset 用户从素材库选择的提示词素材。
+   * @returns 当前提示词为空或相同时立即应用，否则打开覆盖确认对话框。
+   */
+  const handleTextAssetConfirm = (asset: TextAsset) => {
+    if (prompt.trim() && prompt.trim() !== asset.content.trim()) {
+      setPendingTextAsset(asset);
+      return;
+    }
+    applyTextAsset(asset);
+  };
+
+  /**
+   * 将当前待确认的新图提示词保存为可复用的素材。
+   * @returns 保存成功或失败时分别显示对应提示。
+   */
+  const handleSavePromptAsset = async (): Promise<void> => {
+    if (!prompt.trim()) return;
+    try {
+      await addTextAsset({
+        content: prompt,
+        sourceKind: 'agent',
+        sourceLabel: 'Agent 确认生成',
+      });
+      dispatchImageActionToast('提示词素材已保存', 'success');
+    } catch (error) {
+      dispatchImageActionToast(error instanceof Error ? error.message : '保存提示词素材失败', 'error');
+    }
+  };
+
   const handleApprove = () => {
     if (busy || overLimit) return;
     onApprove(prompt, selectedIds.slice(0, maxRefs), imageModel, layout);
@@ -308,6 +427,49 @@ export function AgentProposalCard({
         className="mb-3 min-h-24 text-sm"
         placeholder="描述你想要的画面..."
       />
+
+      {effectiveMode === 'generate' && (
+        <div className="mb-3 flex flex-wrap justify-end gap-1 border-b border-border/60 pb-3">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setQuickPromptOpen(true)}
+            disabled={busy}
+            title="快速提示词"
+          >
+            <Zap className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setTextAssetPickerOpen(true)}
+            disabled={busy}
+            title="导入提示词素材"
+          >
+            <FileText className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => void handleSavePromptAsset()}
+            disabled={busy || !prompt.trim()}
+            title="存为提示词素材"
+          >
+            <Save className="h-4 w-4" />
+          </Button>
+          {promptOptimizeEnabled && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleOptimize}
+              disabled={busy || !prompt.trim()}
+              title="优化提示词"
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      )}
 
       {orderedImages.length > 0 && (
         <div className="mb-3">
@@ -595,6 +757,43 @@ export function AgentProposalCard({
         onOpenChange={setCustomSizeDialogOpen}
         onApply={size => setLayout(prev => ({ ...prev, customSize: size }))}
       />
+
+      <QuickPromptDialog
+        open={quickPromptOpen}
+        onOpenChange={setQuickPromptOpen}
+        currentMode="text-to-image"
+        currentPrompt={prompt}
+        onSelect={setPrompt}
+      />
+
+      <PromptOptimizeDialog
+        open={optimizeOpen}
+        onOpenChange={open => { if (!open) handleOptimizeCancel(); setOptimizeOpen(open); }}
+        originalPrompt={prompt}
+        optimizedPrompt={optimizedText}
+        loading={optimizing}
+        error={optimizeError}
+        onAccept={handleOptimizeAccept}
+        onCancel={handleOptimizeCancel}
+      />
+
+      <AgentTextAssetPickerDialog
+        open={textAssetPickerOpen}
+        onOpenChange={setTextAssetPickerOpen}
+        onConfirm={handleTextAssetConfirm}
+      />
+
+      {pendingTextAsset && createPortal(
+        <ConfirmDialog
+          title="覆盖当前提示词"
+          message="将用素材内容覆盖当前输入框，是否继续？"
+          confirmText="覆盖"
+          variant="default"
+          onConfirm={() => applyTextAsset(pendingTextAsset)}
+          onCancel={() => setPendingTextAsset(null)}
+        />,
+        document.body,
+      )}
 
     </div>
   );
