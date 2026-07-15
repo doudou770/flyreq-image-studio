@@ -1067,6 +1067,17 @@ function normalizeError(error) {
   return message.length > 200 ? message.slice(0, 200) + '…' : message;
 }
 
+/**
+ * 构建上游 HTTP 失败的展示前缀，并为网关超时提供重试指引。
+ * @param status 上游响应的 HTTP 状态码。
+ * @returns 不包含上游响应体的错误前缀。
+ */
+function getUpstreamHttpErrorPrefix(status) {
+  return status === 504
+    ? '上游服务错误（HTTP 504，请再次重试）'
+    : `上游服务错误（HTTP ${status}）`;
+}
+
 function validateEnumValue(value, validValues, fieldName) {
   if (value === undefined || value === null || value === '') return undefined;
   if (!validValues.has(value)) {
@@ -1595,7 +1606,7 @@ async function parseGptImageResponse(response) {
   const responseText = await response.text();
 
   if (!response.ok) {
-    throw new Error(`上游服务错误（HTTP ${response.status}）：${responseText}`);
+    throw new Error(`${getUpstreamHttpErrorPrefix(response.status)}：${responseText}`);
   }
 
   if (isEventStream) {
@@ -1765,7 +1776,7 @@ async function generateFlyreqGeminiImage(apiKey, request, options = {}) {
 
   if (!response.ok) {
     const responseText = await response.text();
-    throw new Error(`上游服务错误（HTTP ${response.status}）：${responseText}`);
+    throw new Error(`${getUpstreamHttpErrorPrefix(response.status)}：${responseText}`);
   }
 
   const responseText = await response.text();
