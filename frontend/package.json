@@ -1,6 +1,6 @@
 {
   "name": "flyreq-image-studio-frontend",
-  "version": "3.1.1",
+  "version": "1.5.1",
   "private": true,
   "description": "FlyReq Image 前端 - Next.js 应用",
   "scripts": {

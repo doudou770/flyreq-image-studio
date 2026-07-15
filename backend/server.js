@@ -47,6 +47,7 @@ const DEFAULT_PLATFORM_BRANDING = {
   platformName: 'FlyReq Image',
   logoUrl: '/favicon.png',
   iconUrl: '/favicon.png',
+  platformVersion: process.env.APP_VERSION || require(path.join(__dirname, '..', 'package.json')).version || '0.0.0',
 };
 const DEFAULT_IMAGE_MODEL_DEPLOYMENT_CONFIG = {
   id: 'flyreq-gpt-image-2',
@@ -66,7 +67,7 @@ const BUILTIN_IMAGE_PRESET_IDS = new Set([
   'gemini-2.5-flash-image', 'gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview',
   'gemini-3.1-flash-lite-image', 'gpt-image-2', 'grok-imagine-image', 'grok-imagine-image-quality',
 ]);
-const DEFAULT_OUTBOUND_USER_AGENT = 'FlyReq-Image-Studio/3.1.1';
+const DEFAULT_OUTBOUND_USER_AGENT = 'FlyReq-Image-Studio/1.5.1';
 
 function parseEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
@@ -865,7 +866,7 @@ function normalizeBrandAssetUrl(value, fallback) {
 }
 
 /**
- * 读取平台名称、Logo 与站点图标的运行时品牌配置。
+ * 读取平台名称、Logo、站点图标与镜像构建版本号的运行时品牌配置。
  * @param env 合并后的运行时环境变量对象。
  * @returns 可直接下发至前端和 PWA Manifest 的品牌配置。
  */
@@ -875,6 +876,7 @@ function resolvePlatformBranding(env = getRuntimeEnv()) {
     platformName: configuredName || DEFAULT_PLATFORM_BRANDING.platformName,
     logoUrl: normalizeBrandAssetUrl(env.FLYREQ_PLATFORM_LOGO_URL, DEFAULT_PLATFORM_BRANDING.logoUrl),
     iconUrl: normalizeBrandAssetUrl(env.FLYREQ_PLATFORM_ICON_URL, DEFAULT_PLATFORM_BRANDING.iconUrl),
+    platformVersion: DEFAULT_PLATFORM_BRANDING.platformVersion,
   };
 }
 

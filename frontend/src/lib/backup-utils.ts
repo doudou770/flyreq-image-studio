@@ -313,8 +313,11 @@ async function exportIndexedDB(files: Record<string, Uint8Array>, onProgress?: P
 /**
  * 导出所有数据为 ZIP 文件
  * 使用 fflate 替代 JSZip，显著降低内存占用和处理时间
+ * @param onProgress 导出进度回调函数。
+ * @param appVersion 当前运行时平台版本号，写入备份元数据。
+ * @returns 包含全部浏览器数据的 ZIP 文件 Blob。
  */
-export async function exportAllData(onProgress?: ProgressCallback): Promise<Blob> {
+export async function exportAllData(onProgress?: ProgressCallback, appVersion: string = '0.0.0'): Promise<Blob> {
     if (onProgress) {
         onProgress({ percent: 0, message: '开始导出数据...' });
     }
@@ -339,7 +342,7 @@ export async function exportAllData(onProgress?: ProgressCallback): Promise<Blob
 
     // 添加元数据
     files['metadata.json'] = jsonToU8({
-        version: process.env.NEXT_PUBLIC_APP_VERSION || '0.0.0',
+        version: appVersion,
         exportDate: new Date().toISOString(),
         appName: 'FlyReq Image',
     });

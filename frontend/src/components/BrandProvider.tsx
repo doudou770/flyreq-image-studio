@@ -6,12 +6,14 @@ export interface PlatformBranding {
   platformName: string;
   logoUrl: string;
   iconUrl: string;
+  platformVersion: string;
 }
 
 const DEFAULT_PLATFORM_BRANDING: PlatformBranding = {
   platformName: 'FlyReq Image',
   logoUrl: '/favicon.png',
   iconUrl: '/favicon.png',
+  platformVersion: '0.0.0',
 };
 
 const BrandContext = createContext<PlatformBranding>(DEFAULT_PLATFORM_BRANDING);
@@ -33,6 +35,9 @@ function normalizeBranding(value: unknown): PlatformBranding {
     iconUrl: typeof source.iconUrl === 'string' && source.iconUrl.trim()
       ? source.iconUrl.trim()
       : DEFAULT_PLATFORM_BRANDING.iconUrl,
+    platformVersion: typeof source.platformVersion === 'string' && source.platformVersion.trim()
+      ? source.platformVersion.trim()
+      : DEFAULT_PLATFORM_BRANDING.platformVersion,
   };
 }
 
@@ -79,7 +84,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
 
 /**
  * 获取当前平台品牌配置。
- * @returns 当前生效的平台名称、Logo 与站点图标地址。
+ * @returns 当前生效的平台名称、Logo、站点图标地址与展示版本号。
  */
 export function useBranding(): PlatformBranding {
   return useContext(BrandContext);

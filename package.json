@@ -1,6 +1,6 @@
 {
   "name": "flyreq-image-studio",
-  "version": "3.1.1",
+  "version": "1.5.1",
   "private": true,
   "description": "FlyReq Image - AI 图像生成工作台",
   "scripts": {

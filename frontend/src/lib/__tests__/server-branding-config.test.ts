@@ -14,6 +14,7 @@ describe('后端平台品牌配置', () => {
     expect(serverSource).toContain('FLYREQ_PLATFORM_NAME');
     expect(serverSource).toContain('FLYREQ_PLATFORM_LOGO_URL');
     expect(serverSource).toContain('FLYREQ_PLATFORM_ICON_URL');
+    expect(serverSource).toContain('process.env.APP_VERSION');
     expect(serverSource).toContain('function resolvePlatformBranding(env = getRuntimeEnv())');
   });
 

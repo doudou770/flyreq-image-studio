@@ -213,7 +213,7 @@ function normalizeDefaults(
 }
 
 export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelConfig, onExternalModelConfigConsumed }: SettingsModalProps) {
-  const { platformName } = useBranding();
+  const { platformName, platformVersion } = useBranding();
   const [imageModels, setImageModels] = useState<ImageModelConfig[]>([]);
   const [textModels, setTextModels] = useState<TextModelConfig[]>([]);
   const [defaults, setDefaults] = useState<DefaultModels>(DEFAULT_DEFAULTS);
@@ -518,7 +518,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
     setBackupError(null);
     setBackupSuccess(null);
     try {
-      const blob = await exportAllData((progress) => setBackupProgress(progress));
+      const blob = await exportAllData((progress) => setBackupProgress(progress), platformVersion);
       const filename = generateBackupFilename();
       downloadBlob(blob, filename);
       setBackupSuccess(`数据已成功导出为 ${filename}`);
@@ -1005,7 +1005,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
 
           <TabsContent value="about" className="min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 mt-0">
             <div className="space-y-4 text-sm">
-              <h3 className="text-lg font-medium">{platformName} <span className="text-xs text-muted-foreground font-normal">v{process.env.NEXT_PUBLIC_APP_VERSION}</span></h3>
+              <h3 className="text-lg font-medium">{platformName} <span className="text-xs text-muted-foreground font-normal">v{platformVersion}</span></h3>
               <div className="rounded-lg border border-primary/20 bg-primary/10 p-3">
                 <p className="font-medium text-foreground">{imageModelKeyGuide.title}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{imageModelKeyGuide.description}</p>

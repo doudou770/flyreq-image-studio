@@ -27,7 +27,10 @@ FROM node:22-slim AS production
 
 WORKDIR /app
 
-ENV NODE_ENV=production
+ARG APP_VERSION=0.0.0
+
+ENV NODE_ENV=production \
+    APP_VERSION=${APP_VERSION}
 
 COPY backend/ ./backend/
 COPY --from=backend-deps /app/backend/node_modules/ ./backend/node_modules/
