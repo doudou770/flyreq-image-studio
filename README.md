@@ -245,11 +245,11 @@ Cloudflare, Nginx, or another gateway can close a long-running response before t
 ## Star History
 
 <a href="https://www.star-history.com/?repos=doudou770%2Fflyreq-image-studio&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=doudou770/flyreq-image-studio&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=doudou770/flyreq-image-studio&type=date&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=doudou770/flyreq-image-studio&type=date&legend=top-left" />
-  </picture>
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=doudou770/flyreq-image-studio&type=date&theme=dark&legend=top-left&sealed_token=9dZ2kL1_BV4KpieyukOjBrWI3rQ-tdq9WN0wqR46Pz1sBxU5ptf32X4FcKFsxFcnD7lVvu2XnhlOsGKRYtOg4_GiXLKgQ1W14VOvTb7CVgIW4p_i4X5elQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=doudou770/flyreq-image-studio&type=date&legend=top-left&sealed_token=9dZ2kL1_BV4KpieyukOjBrWI3rQ-tdq9WN0wqR46Pz1sBxU5ptf32X4FcKFsxFcnD7lVvu2XnhlOsGKRYtOg4_GiXLKgQ1W14VOvTb7CVgIW4p_i4X5elQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=doudou770/flyreq-image-studio&type=date&legend=top-left&sealed_token=9dZ2kL1_BV4KpieyukOjBrWI3rQ-tdq9WN0wqR46Pz1sBxU5ptf32X4FcKFsxFcnD7lVvu2XnhlOsGKRYtOg4_GiXLKgQ1W14VOvTb7CVgIW4p_i4X5elQ" />
+ </picture>
 </a>
 
 ---
