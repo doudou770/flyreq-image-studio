@@ -262,8 +262,6 @@ The infinite-canvas workspace is built on [infinite-canvas](https://github.com/b
 
 Thanks to the [Linux.do](https://linux.do/) community for its support.
 
-Thanks to the [NodeSeek](https://www.nodeseek.com/) community for its support.
-
 ---
 
 ## Star History

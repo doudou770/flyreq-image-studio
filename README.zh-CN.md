@@ -666,7 +666,6 @@ FLYREQ_ACCEPT_NEW_TASKS=false
 
 感谢 [Linux.do](https://linux.do/) 社区的支持。
 
-感谢 [NodeSeek](https://www.nodeseek.com/) 社区的支持。
 
 ---
 
