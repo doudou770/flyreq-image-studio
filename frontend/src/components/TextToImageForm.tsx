@@ -14,6 +14,7 @@ import { AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerD
 import { GenerationParamsBar, type GenerationParamsValue } from '@/components/GenerationParamsBar';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
+import { useImageModelDefaultRefresh } from '@/hooks/useImageModelDefaultRefresh';
 import { getEffectivePromptSubmissionShortcutLabels, usePromptSubmissionShortcut } from '@/hooks/usePromptSubmissionShortcut';
 import { PromptSubmissionShortcutMenu } from '@/components/PromptSubmissionShortcutMenu';
 import { addTextAsset, type TextAsset } from '@/lib/asset-store';
@@ -101,6 +102,7 @@ export function TextToImageForm({ onSubmit, disabled = false, onDraftConsumed, o
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
   const optimizeHandleRef = useRef<StreamPromptOptimizeHandle | null>(null);
   const { enabled: promptOptimizeEnabled } = usePromptOptimizeSetting();
+  const imageModelDefaultRefreshVersion = useImageModelDefaultRefresh();
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
   const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport);
 
@@ -217,7 +219,7 @@ export function TextToImageForm({ onSubmit, disabled = false, onDraftConsumed, o
 
       setSettingsReady(true);
     });
-  }, [initialData]);
+  }, [imageModelDefaultRefreshVersion, initialData]);
 
   // 保存设置到缓存
   useEffect(() => {

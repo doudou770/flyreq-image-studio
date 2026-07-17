@@ -39,6 +39,7 @@ import {
   DEFAULT_DEFAULTS,
   generateModelId,
   getDefaultTextModelTemplate,
+  getCompleteImageModels,
   getImageModelOutputSizes,
   getResolvedImageModelId,
   isXaiImaginePresetId,
@@ -54,6 +55,8 @@ import { syncDynamicModelExports } from '@/lib/gemini-config';
 import { exportAllData, importAllData, downloadBlob, generateBackupFilename, type BackupProgress as BackupProgressType } from '@/lib/backup-utils';
 import { checkModelsAvailability, type ModelStatus } from '@/lib/flyreq-task-client';
 import { hasConfiguredImageModel, isPromptOptimizeEnabled, setPromptOptimizeEnabled } from '@/lib/settings-storage';
+import { saveFirstImageModelAsFormDefault } from '@/lib/form-settings';
+import { notifyImageModelDefaultUpdated } from '@/hooks/useImageModelDefaultRefresh';
 import { BA_RANDOM_URL, BING_WALLPAPER_URL, IMAGE_MODEL_KEY_GUIDE } from '@/lib/constants';
 import { PROMPT_DATA_SOURCES, getPromptSourceLabel } from '@/lib/prompt-gallery-data';
 import { getOutputSizeLabel } from '@/lib/model-capabilities';
@@ -440,6 +443,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   };
 
   const persistRegistry = () => {
+    const hasNoCompleteImageModelBeforeSave = getCompleteImageModels(loadRegistry()).length === 0;
     const enabledTextModels = textModels.filter(hasAnyTextModelField);
     if (imageModels.length === 0) {
       setError('至少填写一个图片模型');
@@ -465,6 +469,10 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
     };
 
     saveRegistry(registry);
+    if (hasNoCompleteImageModelBeforeSave && registry.defaults.textToImage) {
+      saveFirstImageModelAsFormDefault(registry.defaults.textToImage);
+      notifyImageModelDefaultUpdated();
+    }
     if (!setPromptOptimizeEnabled(promptOptimizeEnabled)) {
       setError('启用提示词优化前，请先完成至少一个文本模型配置');
       return;
