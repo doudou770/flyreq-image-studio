@@ -8,8 +8,10 @@ const PROMPT_VARIANT_SEPARATOR = '\n\n本张图要求：\n';
  * @returns 包含附加提示词的完整提示词；没有附加提示词时返回主提示词。
  */
 export function composeEffectiveImagePrompt(prompt: string, promptVariant?: string): string {
+  const normalizedPrompt = String(prompt || '').trim();
   const normalizedVariant = String(promptVariant || '').trim();
-  return normalizedVariant ? `${prompt}${PROMPT_VARIANT_SEPARATOR}${normalizedVariant}` : prompt;
+  if (!normalizedVariant) return normalizedPrompt;
+  return normalizedPrompt ? `${normalizedPrompt}${PROMPT_VARIANT_SEPARATOR}${normalizedVariant}` : normalizedVariant;
 }
 
 /**

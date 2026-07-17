@@ -7,6 +7,10 @@ describe('单图实际提示词', () => {
     expect(composeEffectiveImagePrompt('一位骑士', '侧身站立')).toBe('一位骑士\n\n本张图要求：\n侧身站立');
   });
 
+  it('主提示词为空时直接使用本张附加指令', () => {
+    expect(composeEffectiveImagePrompt('', '侧身站立')).toBe('侧身站立');
+  });
+
   it('优先使用新版任务持久化的实际提示词，并兼容旧任务字段', () => {
     expect(getEffectiveImagePrompt('一位骑士', ['侧身站立'])).toBe('一位骑士\n\n本张图要求：\n侧身站立');
     expect(getEffectiveImagePrompt('一位骑士', ['侧身站立'], '已保存的完整提示词')).toBe('已保存的完整提示词');

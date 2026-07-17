@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
 import { getEffectivePromptSubmissionShortcutLabels, usePromptSubmissionShortcut } from '@/hooks/usePromptSubmissionShortcut';
 import { PromptSubmissionShortcutMenu } from '@/components/PromptSubmissionShortcutMenu';
+import { useI18n } from '@/components/LanguageProvider';
 import { streamPromptOptimize, type StreamPromptOptimizeHandle } from '@/lib/prompt-optimize-client';
 import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
 import { requireDefaultConfiguredTextModel } from '@/lib/model-endpoints';
@@ -122,6 +123,7 @@ export function ImageGenerationWorkbench({
   initialData,
   referenceDraft,
 }: ImageGenerationWorkbenchProps) {
+  const { t } = useI18n();
   const [prompt, setPrompt] = useState('');
   const [pendingFiles, setPendingFiles] = useState<UploadedFile[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -156,10 +158,9 @@ export function ImageGenerationWorkbench({
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
   const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport);
 
-  const modelLimit = MODEL_IMAGE_LIMITS[model] || { max: 1, description: '最多 1 张参考图片' };
-  const maxImages = modelLimit.max;
+  const maxImages = MODEL_IMAGE_LIMITS[model]?.max || 1;
   const currentMode: WorkbenchMode = pendingFiles.length > 0 ? 'image-to-image' : 'text-to-image';
-  const disabledMessage = '请先在设置中配置 FlyReq API 密钥，配置完成后即可开始生成图片。';
+  const disabledMessage = t('workbench.disabledMessage');
 
   /**
    * 合并参数条回传的配置，并在切回单图时清理不可见的逐图附加提示词。
@@ -239,7 +240,7 @@ export function ImageGenerationWorkbench({
           preview: img.dataUrl,
           dataUrl: img.dataUrl,
           mimeType: img.mimeType,
-          badge: img.badge || '已恢复',
+          badge: img.badge,
         })));
       }
 
@@ -274,7 +275,7 @@ export function ImageGenerationWorkbench({
     try {
       textModel = requireDefaultConfiguredTextModel('promptOptimize');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '请先完成默认文本模型配置', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('workbench.configureDefaultTextModel'), 'error');
       return;
     }
 
@@ -295,7 +296,7 @@ export function ImageGenerationWorkbench({
       textModel.baseUrl,
     );
     optimizeHandleRef.current = handle;
-  }, [currentMode, pendingFiles, prompt]);
+  }, [currentMode, pendingFiles, prompt, t]);
 
   const handleOptimizeCancel = useCallback(() => {
     optimizeHandleRef.current?.abort();
@@ -325,7 +326,7 @@ export function ImageGenerationWorkbench({
         const existingIds = new Set(prev.map(file => file.id));
         const remainingSlots = Math.max(0, maxImages - prev.length);
         if (remainingSlots <= 0) {
-          setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图`);
+          setUploadError(t('workbench.maxReferenceImages', { model: MODEL_OPTIONS.find(o => o.value === model)?.label || model, count: maxImages }));
           return prev;
         }
         const incoming: UploadedFile[] = referenceDraft.refImages
@@ -337,10 +338,10 @@ export function ImageGenerationWorkbench({
             preview: img.dataUrl,
             dataUrl: img.dataUrl,
             mimeType: img.mimeType,
-            badge: img.badge || '参考',
+            badge: img.badge || t('workbench.referenceBadge'),
           }));
         if (incoming.length < referenceDraft.refImages.length) {
-          setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图，已添加可容纳的图片`);
+          setUploadError(t('workbench.maxReferenceImagesAdded', { model: MODEL_OPTIONS.find(o => o.value === model)?.label || model, count: maxImages }));
         } else {
           setUploadError(null);
         }
@@ -350,16 +351,16 @@ export function ImageGenerationWorkbench({
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- referenceDraft.id is the stable identity; refImages is consumed via ref guard
-  }, [maxImages, model, onDraftConsumed, referenceDraft?.id]);
+  }, [maxImages, model, onDraftConsumed, referenceDraft?.id, t]);
 
   const processFiles = useCallback(async (fileList: FileList | File[]) => {
     const filesToProcess = Array.from(fileList).filter(f => f.type.startsWith('image/'));
     if (filesToProcess.length === 0) {
-      setUploadError('请选择图像文件');
+      setUploadError(t('workbench.selectImageFile'));
       return;
     }
     if (pendingFiles.length + filesToProcess.length > maxImages) {
-      setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} ${modelLimit.description}`);
+      setUploadError(t('workbench.maxReferenceImages', { model: MODEL_OPTIONS.find(o => o.value === model)?.label || model, count: maxImages }));
       return;
     }
 
@@ -372,7 +373,7 @@ export function ImageGenerationWorkbench({
       for (const file of filesToProcess) {
         const optimized = await prepareUploadImage(file);
         if (optimized.processedSize > MAX_UPLOAD_SIZE_BYTES) {
-          setUploadError(`文件过大: ${file.name}，压缩后仍超过 10MB`);
+          setUploadError(t('workbench.fileTooLarge', { name: file.name }));
           continue;
         }
 
@@ -392,18 +393,18 @@ export function ImageGenerationWorkbench({
         return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
       });
     } catch {
-      setUploadError('文件读取失败');
+      setUploadError(t('workbench.fileReadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [maxImages, model, modelLimit.description, pendingFiles.length]);
+  }, [maxImages, model, pendingFiles.length, t]);
 
   const handleImportAssets = useCallback(async (selectedAssets: ImageAsset[]) => {
     if (selectedAssets.length === 0) return;
 
     const remainingSlots = Math.max(0, maxImages - pendingFiles.length);
     if (remainingSlots <= 0) {
-      setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图`);
+      setUploadError(t('workbench.maxReferenceImages', { model: MODEL_OPTIONS.find(o => o.value === model)?.label || model, count: maxImages }));
       return;
     }
 
@@ -421,7 +422,7 @@ export function ImageGenerationWorkbench({
         const optimized = await prepareUploadImage(file);
 
         if (optimized.processedSize > MAX_UPLOAD_SIZE_BYTES) {
-          setUploadError(`文件过大: ${asset.name}，压缩后仍超过 10MB`);
+          setUploadError(t('workbench.fileTooLarge', { name: asset.name }));
           continue;
         }
 
@@ -431,7 +432,7 @@ export function ImageGenerationWorkbench({
           preview: optimized.preview,
           dataUrl: optimized.dataUrl,
           mimeType: optimized.mimeType,
-          badge: '素材库',
+          badge: t('workbench.assetLibrary'),
         });
       }
 
@@ -442,14 +443,14 @@ export function ImageGenerationWorkbench({
       });
 
       if (selectedAssets.length > remainingSlots) {
-        setUploadError(`${MODEL_OPTIONS.find(o => o.value === model)?.label} 最多支持 ${maxImages} 张参考图，已导入可容纳的图片`);
+        setUploadError(t('workbench.maxReferenceImagesImported', { model: MODEL_OPTIONS.find(o => o.value === model)?.label || model, count: maxImages }));
       }
     } catch {
-      setUploadError('素材导入失败');
+      setUploadError(t('workbench.assetImportFailed'));
     } finally {
       setLoading(false);
     }
-  }, [maxImages, model, pendingFiles.length]);
+  }, [maxImages, model, pendingFiles.length, t]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -517,13 +518,13 @@ export function ImageGenerationWorkbench({
       await addTextAsset({
         content: prompt,
         sourceKind: currentMode,
-        sourceLabel: '生图工作台',
+        sourceLabel: t('workbench.sourceLabel'),
       });
-      dispatchImageActionToast('提示词素材已保存', 'success');
+      dispatchImageActionToast(t('workbench.promptAssetSaved'), 'success');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '保存提示词素材失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('workbench.promptAssetSaveFailed'), 'error');
     }
-  }, [currentMode, prompt]);
+  }, [currentMode, prompt, t]);
 
   const activePromptVariants = useMemo(
     () => Array.from({ length: parallelCount }, (_, index) => promptVariants[index] || ''),
@@ -533,6 +534,7 @@ export function ImageGenerationWorkbench({
     const values = normalizePromptVariants(activePromptVariants).map(item => item.trim());
     return values.some(Boolean) ? values : undefined;
   }, [activePromptVariants]);
+  const hasCompletePromptVariants = parallelCount > 1 && activePromptVariants.every(variant => variant.trim().length > 0);
 
   const handlePromptVariantChange = useCallback((index: number, value: string) => {
     setPromptVariants(prev => {
@@ -543,16 +545,17 @@ export function ImageGenerationWorkbench({
   }, []);
 
   const handleSubmit = () => {
-    if (!prompt.trim() || disabled || loading) return;
+    const mainPrompt = prompt.trim();
+    if ((!mainPrompt && !hasCompletePromptVariants) || disabled || loading) return;
     if (!model) {
-      dispatchImageActionToast('请先选择图片模型，或在设置中配置可用的图片模型。', 'error');
+      dispatchImageActionToast(t('workbench.selectImageModel'), 'error');
       return;
     }
 
     const modelWithBilling = model;
     if (pendingFiles.length > 0) {
       onSubmitImage({
-        prompt: prompt.trim(),
+        prompt: mainPrompt,
         files: pendingFiles,
         outputSize,
         customSize,
@@ -568,7 +571,7 @@ export function ImageGenerationWorkbench({
       });
     } else {
       onSubmitText({
-        prompts: [prompt.trim()],
+        prompts: [mainPrompt],
         outputSize,
         customSize,
         aspectRatio,
@@ -614,8 +617,10 @@ export function ImageGenerationWorkbench({
     }
   };
 
-  const canSubmit = prompt.trim().length > 0 && !disabled && !loading;
-  const canClear = prompt.trim().length > 0 || pendingFiles.length > 0;
+  const canSubmit = (prompt.trim().length > 0 || hasCompletePromptVariants) && !disabled && !loading;
+  const canClear = prompt.trim().length > 0
+    || activePromptVariants.some(variant => variant.trim().length > 0)
+    || pendingFiles.length > 0;
 
   return (
     <div ref={formRef} className="space-y-4">
@@ -626,10 +631,10 @@ export function ImageGenerationWorkbench({
               <Info className="h-5 w-5" />
             </div>
             <div className="max-w-md">
-              <p className="text-base font-medium text-foreground">API 密钥未配置</p>
+              <p className="text-base font-medium text-foreground">{t('workbench.missingApiKeyTitle')}</p>
               <p className="mt-2 text-sm text-muted-foreground">{disabledMessage}</p>
             </div>
-            <Button onClick={() => setMissingApiKeyDialogOpen(true)}>配置</Button>
+            <Button onClick={() => setMissingApiKeyDialogOpen(true)}>{t('workbench.configure')}</Button>
           </div>
         ) : (
           <>
@@ -657,23 +662,23 @@ export function ImageGenerationWorkbench({
                   />
                   <CloudUpload className={cn('mx-auto mb-1 h-6 w-6', isDragOver ? 'text-primary' : 'text-muted-foreground')} />
                   <p className="text-sm font-medium">
-                    {loading ? '读取中...' : isDragOver ? '将图像拖放到这里' : '参考图（可选）'}
+                    {loading ? t('workbench.reading') : isDragOver ? t('workbench.dropImages') : t('workbench.referenceImagesOptional')}
                   </p>
-                  <p className="text-xs text-muted-foreground">点击选择 · 拖放 · Ctrl+V 粘贴</p>
+                  <p className="text-xs text-muted-foreground">{t('workbench.uploadHint')}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {pendingFiles.length} / {maxImages} 张
+                    {t('workbench.referenceImageCount', { count: pendingFiles.length, max: maxImages })}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setAssetPickerOpen(true)}
                   disabled={loading || pendingFiles.length >= maxImages}
-                  title="从素材库导入参考图"
+                  title={t('workbench.importReferenceImages')}
                   className="flex flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 px-3 py-4 text-center transition-all hover:border-primary/50 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <ImagePlus className="h-6 w-6 text-muted-foreground" />
-                  <span className="text-sm font-medium">素材库</span>
-                  <span className="text-xs text-muted-foreground">导入参考图</span>
+                  <span className="text-sm font-medium">{t('workbench.assetLibrary')}</span>
+                  <span className="text-xs text-muted-foreground">{t('workbench.importReferenceImages')}</span>
                 </button>
               </div>
             </div>
@@ -684,7 +689,7 @@ export function ImageGenerationWorkbench({
                   files={pendingFiles}
                   onRemove={handleRemovePending}
                   sourceKind="upload"
-                  sourceLabel="生图参考图"
+                  sourceLabel={t('workbench.referenceSourceLabel')}
                   prompt={prompt}
                   showDownload={false}
                   showCopy
@@ -698,12 +703,12 @@ export function ImageGenerationWorkbench({
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={pendingFiles.length > 0 ? '描述如何调整参考图...' : '描述你想要生成的图像...'}
+              placeholder={pendingFiles.length > 0 ? t('workbench.imageEditPlaceholder') : t('workbench.imageGeneratePlaceholder')}
               rows={3}
               className="resize-none rounded-none border-0 bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4"
             />
             <p className="px-3 pb-1 text-xs text-muted-foreground sm:px-4" aria-live="polite">
-              发送：{shortcutLabels.submission} · 换行：{shortcutLabels.newline}
+              {t('workbench.shortcutHint', { submission: shortcutLabels.submission, newline: shortcutLabels.newline })}
             </p>
 
             <div className="px-3 pt-2 pb-2 sm:px-4">
@@ -721,7 +726,7 @@ export function ImageGenerationWorkbench({
                   className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <span className="font-medium">
-                    每张图要求
+                    {t('workbench.perImageInstructions')}
                     {submitPromptVariants && (
                       <span className="ml-1 font-normal text-primary">
                         {submitPromptVariants.filter(Boolean).length}/{parallelCount}
@@ -737,7 +742,7 @@ export function ImageGenerationWorkbench({
                         key={index}
                         value={value}
                         onChange={(event) => handlePromptVariantChange(index, event.target.value)}
-                        placeholder={`第 ${index + 1} 张的额外要求，可留空`}
+                        placeholder={t('workbench.additionalInstructionPlaceholder', { index: index + 1 })}
                         rows={2}
                         className="min-h-14 resize-none text-xs placeholder:text-placeholder"
                       />
@@ -749,24 +754,24 @@ export function ImageGenerationWorkbench({
 
             <div className="ml-auto flex w-full justify-end gap-2 px-3 pb-2 sm:w-auto sm:px-4">
               <PromptSubmissionShortcutMenu value={submissionShortcut} isSmallViewport={isSmallViewport} onValueChange={updateSubmissionShortcut} />
-              <Button variant="ghost" size="icon" onClick={() => setQuickPromptOpen(true)} title="快速提示词">
+              <Button variant="ghost" size="icon" onClick={() => setQuickPromptOpen(true)} title={t('workbench.quickPrompt')}>
                 <Zap className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => setTextAssetPickerOpen(true)} title="导入提示词素材">
+              <Button variant="ghost" size="icon" onClick={() => setTextAssetPickerOpen(true)} title={t('workbench.importPromptAsset')}>
                 <FileText className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => void handleSavePromptAsset()} disabled={!prompt.trim()} title="存为提示词素材">
+              <Button variant="ghost" size="icon" onClick={() => void handleSavePromptAsset()} disabled={!prompt.trim()} title={t('workbench.savePromptAsset')}>
                 <Save className="w-4 h-4" />
               </Button>
               {promptOptimizeEnabled && (
-                <Button variant="ghost" size="icon" onClick={handleOptimize} disabled={!prompt.trim()} title="优化提示词">
+                <Button variant="ghost" size="icon" onClick={handleOptimize} disabled={!prompt.trim()} title={t('workbench.optimizePrompt')}>
                   <Sparkles className="w-4 h-4" />
                 </Button>
               )}
-              <Button variant="outline" size="icon" onClick={handleClearDraft} disabled={!canClear} title="清空提示词和图片">
+              <Button variant="outline" size="icon" onClick={handleClearDraft} disabled={!canClear} title={t('workbench.clearDraft')}>
                 <X className="w-5 h-5" />
               </Button>
-              <Button onClick={handleSubmit} disabled={!canSubmit} size="icon" title={currentMode === 'image-to-image' ? '按图生图提交' : '按文生图提交'}>
+              <Button onClick={handleSubmit} disabled={!canSubmit} size="icon" title={currentMode === 'image-to-image' ? t('workbench.submitImageToImage') : t('workbench.submitTextToImage')}>
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowUp className="w-5 h-5" />}
               </Button>
             </div>
@@ -789,7 +794,7 @@ export function ImageGenerationWorkbench({
       />
       <PromptOptimizeDialog
         open={optimizeOpen}
-        onOpenChange={(open) => { if (!open) handleOptimizeCancel(); setOptimizeOpen(open); }}
+        onOpenChange={setOptimizeOpen}
         originalPrompt={prompt}
         optimizedPrompt={optimizedText}
         loading={optimizing}
@@ -810,9 +815,9 @@ export function ImageGenerationWorkbench({
       />
       {pendingTextAsset && createPortal(
         <ConfirmDialog
-          title="覆盖当前提示词"
-          message="将用素材内容覆盖当前输入框，是否继续？"
-          confirmText="覆盖"
+          title={t('workbench.overwritePromptTitle')}
+          message={t('workbench.overwritePromptMessage')}
+          confirmText={t('workbench.overwritePromptConfirm')}
           variant="default"
           onConfirm={() => applyTextAsset(pendingTextAsset)}
           onCancel={() => setPendingTextAsset(null)}

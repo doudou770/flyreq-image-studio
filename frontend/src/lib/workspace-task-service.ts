@@ -176,6 +176,9 @@ function buildImageReferences(files: ImageToImageSubmitInput['files']): ImageRef
  * @param parallelCount 该历史任务包含的图片数量。
  * @param promptVariants 本任务的提示词变体。
  * @param refImages 图生图参考图片。
+ * @param batchId 多图提交的稳定批次标识，单图任务不设置。
+ * @param batchCreatedAt 多图提交共用的提交时间，防止服务端时间回写拆散批次。
+ * @param batchIndex 当前图片在多图提交中的从零开始序号，单图任务不设置。
  * @returns 已初始化、等待关联服务端任务的本地任务对象。
  */
 function createBaseJob(
@@ -192,7 +195,10 @@ function createBaseJob(
   gptImageOutputFormat: GptImageOutputFormat,
   parallelCount: ParallelCount,
   promptVariants?: string[],
-  refImages?: StoredJob['refImages']
+  refImages?: StoredJob['refImages'],
+  batchId?: string,
+  batchCreatedAt?: string,
+  batchIndex?: number,
 ): StoredJob {
   const advancedParams = getGptImageAdvancedParamsForModel(model as ModelId, {
     quality: gptImageQuality,
@@ -217,6 +223,9 @@ function createBaseJob(
     gptImageBackground: advancedParams.background,
     gptImageOutputFormat: advancedParams.outputFormat,
     parallelCount,
+    batchId,
+    batchCreatedAt,
+    batchIndex,
     promptVariants,
     effectivePrompt: composeEffectiveImagePrompt(prompt, promptVariants?.[0]),
     created_at: new Date().toISOString(),
@@ -459,6 +468,8 @@ export async function submitTextToImage(
     }
 
     for (const prompt of input.prompts) {
+      const batchId = input.parallelCount > 1 ? generateUUID() : undefined;
+      const batchCreatedAt = batchId ? new Date().toISOString() : undefined;
       const jobs = Array.from({ length: input.parallelCount }, (_, imageIndex) => {
         const promptVariants = getSingleImagePromptVariants(input.promptVariants, imageIndex);
         return createBaseJob(
@@ -474,7 +485,11 @@ export async function submitTextToImage(
           input.gptImageBackground,
           input.gptImageOutputFormat,
           1,
-          promptVariants
+          promptVariants,
+          undefined,
+          batchId,
+          batchCreatedAt,
+          input.parallelCount > 1 ? imageIndex : undefined,
         );
       });
       [...jobs].reverse().forEach(job => actions.addJob(job));
@@ -552,6 +567,8 @@ export async function submitImageToImage(
       mimeType: file.mimeType,
     }));
     const imageReferences = buildImageReferences(input.files);
+    const batchId = input.parallelCount > 1 ? generateUUID() : undefined;
+    const batchCreatedAt = batchId ? new Date().toISOString() : undefined;
     const jobs = Array.from({ length: input.parallelCount }, (_, imageIndex) => {
       const promptVariants = getSingleImagePromptVariants(input.promptVariants, imageIndex);
       return createBaseJob(
@@ -568,7 +585,10 @@ export async function submitImageToImage(
         input.gptImageOutputFormat,
         1,
         promptVariants,
-        refImages
+        refImages,
+        batchId,
+        batchCreatedAt,
+        input.parallelCount > 1 ? imageIndex : undefined,
       );
     });
     [...jobs].reverse().forEach(job => actions.addJob(job));

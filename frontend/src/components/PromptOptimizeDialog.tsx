@@ -26,21 +26,39 @@ export function PromptOptimizeDialog({
   onAccept,
   onCancel,
 }: PromptOptimizeDialogProps) {
-  const handleCancel = () => {
+  /**
+   * 关闭弹窗并终止当前优化请求，确保取消回调只执行一次。
+   * @returns 无返回值。
+   */
+  const handleClose = () => {
     onCancel();
     onOpenChange(false);
   };
 
+  /**
+   * 接受优化后的提示词并关闭弹窗。
+   * @returns 无返回值。
+   */
   const handleAccept = () => {
     onAccept();
     onOpenChange(false);
   };
 
+  /**
+   * 同步 Dialog 的开关事件；关闭时统一走取消清理逻辑。
+   * @param nextOpen Dialog 请求设置的开关状态。
+   * @returns 无返回值。
+   */
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      handleClose();
+      return;
+    }
+    onOpenChange(true);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => {
-      if (!nextOpen) handleCancel();
-      onOpenChange(nextOpen);
-    }}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -93,7 +111,7 @@ export function PromptOptimizeDialog({
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
-          <Button variant="ghost" onClick={handleCancel}>
+          <Button variant="ghost" onClick={handleClose}>
             取消
           </Button>
           <Button

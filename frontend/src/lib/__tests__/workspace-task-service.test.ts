@@ -33,7 +33,7 @@ vi.hoisted(() => {
 
 import { ackFlyreqTask, createFlyreqTasks, resolveImageTaskProvider, type FlyreqTaskResponse } from '@/lib/flyreq-task-client';
 import { downloadAndStoreImages } from '@/lib/image-downloader';
-import type { StoredJob } from '@/lib/job-store';
+import { compareStoredJobsByDisplayOrder, getStoredJobDisplayPrompt, restoreStoredJobBatchCreatedAt, type StoredJob } from '@/lib/job-store';
 import {
   finalizeCompletedServerTask,
   getTaskSseMetadata,
@@ -141,6 +141,54 @@ describe('getTaskSseMetadata', () => {
       status: 'completed',
       result: { images: ['URL:/api/image.png'] },
     })).toEqual({});
+  });
+});
+
+describe('任务展示提示词', () => {
+  it('批量任务优先展示本张附加指令', () => {
+    expect(getStoredJobDisplayPrompt(makeJob({
+      prompt: '主提示词',
+      promptVariants: ['第 2 张的附加指令'],
+    }))).toBe('第 2 张的附加指令');
+    expect(getStoredJobDisplayPrompt(makeJob({ prompt: '主提示词' }))).toBe('主提示词');
+  });
+});
+
+describe('任务展示顺序', () => {
+  it('补齐旧批量任务的统一提交时间', () => {
+    const restored = restoreStoredJobBatchCreatedAt([
+      makeJob({ id: 'batch-job-1', batchId: 'legacy-batch', batchIndex: 0, created_at: '2026-06-07T00:00:20.000Z' }),
+      makeJob({ id: 'batch-job-2', batchId: 'legacy-batch', batchIndex: 1, created_at: '2026-06-07T00:00:10.000Z' }),
+      makeJob({ id: 'single-job', created_at: '2026-06-07T00:00:15.000Z' }),
+    ]);
+
+    expect(restored.map(job => job.batchCreatedAt)).toEqual([
+      '2026-06-07T00:00:10.000Z',
+      '2026-06-07T00:00:10.000Z',
+      undefined,
+    ]);
+  });
+
+  it('使用批次提交时间保持同批图片连续且倒序', () => {
+    const batchId = 'batch-1';
+    const batchCreatedAt = '2026-06-07T00:00:10.000Z';
+    const batchJobs = [0, 1, 2].map(batchIndex => makeJob({
+      id: `batch-job-${batchIndex}`,
+      batchId,
+      batchCreatedAt,
+      batchIndex,
+      // 模拟任务轮询回写的不同服务端创建时间。
+      created_at: `2026-06-07T00:00:${20 + batchIndex}.000Z`,
+    }));
+    const anotherJob = makeJob({
+      id: 'another-job',
+      created_at: '2026-06-07T00:00:15.000Z',
+    });
+
+    expect([batchJobs[0], anotherJob, batchJobs[1], batchJobs[2]]
+      .sort(compareStoredJobsByDisplayOrder)
+      .map(job => job.id)
+    ).toEqual(['another-job', 'batch-job-2', 'batch-job-1', 'batch-job-0']);
   });
 });
 
@@ -263,6 +311,41 @@ describe('submitTextToImage', () => {
     ]);
   });
 
+  it('submits complete per-image prompts without a main prompt and displays the batch in reverse order', async () => {
+    const job = makeJob();
+    const { actions } = createActions(job);
+    const promptVariants = ['第 1 张', '第 2 张', '第 3 张'];
+
+    await submitTextToImage({
+      prompts: [''],
+      outputSize: '1K',
+      aspectRatio: '1:1',
+      temperature: 1,
+      model: 'flyreq-gpt-image-2',
+      gptImageQuality: 'auto',
+      gptImageStyle: 'auto',
+      gptImageBackground: 'auto',
+      gptImageOutputFormat: 'png',
+      parallelCount: 3,
+      promptVariants,
+    }, actions, vi.fn());
+
+    expect(mockedCreateFlyreqTasks).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '',
+      effectivePrompts: promptVariants,
+    }));
+    const createdJobs = actions.addJob.mock.calls.map(([createdJob]) => createdJob as StoredJob);
+    expect([...createdJobs].sort(compareStoredJobsByDisplayOrder).map(createdJob => ({
+      batchIndex: createdJob.batchIndex,
+      effectivePrompt: createdJob.effectivePrompt,
+    }))).toEqual([
+      { batchIndex: 2, effectivePrompt: '第 3 张' },
+      { batchIndex: 1, effectivePrompt: '第 2 张' },
+      { batchIndex: 0, effectivePrompt: '第 1 张' },
+    ]);
+    expect(new Set(createdJobs.map(createdJob => createdJob.batchCreatedAt)).size).toBe(1);
+  });
+
   it('passes the Grok Imagine API flavor into the server task payload', async () => {
     const job = makeJob();
     const { actions } = createActions(job);
@@ -293,6 +376,10 @@ describe('submitTextToImage', () => {
       imageApiFlavor: 'xai-imagine',
       outputSize: '2K',
       aspectRatio: '19.5:9',
+    }));
+    expect(actions.addJob).toHaveBeenCalledWith(expect.objectContaining({
+      batchId: undefined,
+      batchIndex: undefined,
     }));
   });
 });

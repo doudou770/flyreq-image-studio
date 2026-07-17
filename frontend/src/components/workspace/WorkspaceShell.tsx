@@ -37,7 +37,7 @@ import { Shuffle, Settings, User, Wallpaper, PanelLeftClose, PanelLeftOpen } fro
 import { getFlyreqTask } from '@/lib/flyreq-task-client';
 import { finalizeCompletedServerTask, getTaskSseMetadata } from '@/lib/workspace-task-service';
 import { classifyTaskFailure } from '@/lib/task-failure';
-import type { RefImageData, StoredJob } from '@/lib/job-store';
+import { compareStoredJobsByDisplayOrder, type RefImageData, type StoredJob } from '@/lib/job-store';
 import { subscribeImageActionToasts, subscribeUseAsImageReference } from '@/lib/image-actions';
 import {
   submitImageToImage,
@@ -205,7 +205,7 @@ export function WorkspaceShell() {
   ), [workspace.retryData]);
 
   const generationJobs = useMemo(
-    () => [...workspace.textJobs, ...workspace.imageJobs].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
+    () => [...workspace.textJobs, ...workspace.imageJobs].sort(compareStoredJobsByDisplayOrder),
     [workspace.imageJobs, workspace.textJobs]
   );
   const filteredGenerationJobs = useMemo(

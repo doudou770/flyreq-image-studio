@@ -452,7 +452,7 @@ export function TextToImageForm({ onSubmit, disabled = false, onDraftConsumed, o
       />
       <PromptOptimizeDialog
         open={optimizeOpen}
-        onOpenChange={(open) => { if (!open) handleOptimizeCancel(); setOptimizeOpen(open); }}
+        onOpenChange={setOptimizeOpen}
         originalPrompt={prompt}
         optimizedPrompt={optimizedText}
         loading={optimizing}

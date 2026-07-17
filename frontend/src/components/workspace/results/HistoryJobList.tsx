@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Loader2, X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { Mode, StoredJob } from '@/lib/job-store';
+import { getBatchImageMarker, getStoredJobDisplayPrompt, type Mode, type StoredJob } from '@/lib/job-store';
 import { cn } from '@/lib/utils';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
 import { getModelDisplayName } from '@/lib/model-capabilities';
@@ -61,6 +61,8 @@ const WaitingJobCard = memo(function WaitingJobCard({
       : (parallelCount > 1 ? t('history.waitConvertingMany', { count: parallelCount }) : t('history.waitConverting'));
   const elapsedSeconds = getJobDurationSeconds(job, now) ?? 0;
   const requestedAtLabel = formatJobDateTime(job.created_at);
+  const batchImageIndex = job.batchId && typeof job.batchIndex === 'number' ? job.batchIndex + 1 : null;
+  const displayedPrompt = getStoredJobDisplayPrompt(job);
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -72,7 +74,8 @@ const WaitingJobCard = memo(function WaitingJobCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+            {batchImageIndex && <span className="shrink-0 text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
+            <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
             <JobSseBadge job={job} />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{statusText}</p>
@@ -330,11 +333,14 @@ export function HistoryJobList({
       const allowCheckStatus = !job.terminal && !!job.serverTaskId;
       const requestedAtLabel = formatJobDateTime(job.created_at);
       const durationLabel = formatDuration(getJobDurationSeconds(job));
+      const batchImageIndex = job.batchId && typeof job.batchIndex === 'number' ? job.batchIndex + 1 : null;
+      const displayedPrompt = getStoredJobDisplayPrompt(job);
       return (
         <div className="rounded-xl border border-destructive/20 bg-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              <p className="truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+              {batchImageIndex && <span className="inline-flex text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
+              <p className="truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
               <p className="max-h-20 overflow-y-auto text-sm text-destructive">{job.error || t('history.failed')}</p>
               <p className="text-xs text-muted-foreground">{getModelDisplayName(job.model)}</p>
               {(requestedAtLabel || durationLabel) && (

@@ -7,7 +7,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useImageLazyLoad } from '@/hooks/useImageLazyLoad';
-import { getImageSrc, type StoredJob } from '@/lib/job-store';
+import { getBatchImageMarker, getImageSrc, getStoredJobDisplayPrompt, type StoredJob } from '@/lib/job-store';
 import { resolveStoredImageRef, revokeBlobUrls } from '@/lib/image-downloader';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
 import { getModelDisplayName, getOutputSizeLabel, getSupportsTemperature } from '@/lib/model-capabilities';
@@ -192,7 +192,10 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
   const isMultiple = sourceImages.length > 1;
   const supportsTemperature = getSupportsTemperature(job.model);
   const effectivePrompt = getEffectiveImagePrompt(job.prompt, job.promptVariants, job.effectivePrompt);
-  const hasPromptVariant = effectivePrompt !== job.prompt;
+  const promptVariant = job.promptVariants?.[0]?.trim() || '';
+  const hasPromptVariant = promptVariant.length > 0;
+  const displayedPrompt = getStoredJobDisplayPrompt(job);
+  const batchImageIndex = job.batchId && typeof job.batchIndex === 'number' ? job.batchIndex + 1 : null;
   const outputSizeLabel = job.custom_size || getOutputSizeLabel(job.output_size);
   const requestedAtLabel = formatJobDateTime(job.created_at);
   const durationLabel = formatDuration(getJobDurationSeconds(job));
@@ -276,22 +279,33 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
   };
 
   /**
-   * 将本张任务实际发送给上游的完整提示词复制到系统剪贴板。
-   * @returns 复制成功时显示成功状态；浏览器不支持或权限被拒绝时显示失败提示。
+   * 将指定的提示词片段复制到系统剪贴板，并保留浏览器或权限错误原文。
+   * @param value 需要复制的提示词文本。
+   * @returns 复制成功返回 true，失败时展示错误提示并返回 false。
    */
-  const copyPrompt = async (): Promise<void> => {
+  const copyPromptValue = async (value: string): Promise<boolean> => {
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error(t('task.copyPromptUnsupported'));
       }
-      await navigator.clipboard.writeText(effectivePrompt);
-      setPromptCopied(true);
-      setTimeout(() => setPromptCopied(false), 2000);
+      await navigator.clipboard.writeText(value);
       dispatchImageActionToast(t('task.promptCopied'), 'success');
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : t('task.copyPromptFailed');
       dispatchImageActionToast(message, 'error');
+      return false;
     }
+  };
+
+  /**
+   * 将本张任务实际发送给上游的完整提示词复制到系统剪贴板。
+   * @returns 无返回值；复制成功时显示图标状态，失败时显示错误提示。
+   */
+  const copyPrompt = async (): Promise<void> => {
+    if (!await copyPromptValue(effectivePrompt)) return;
+    setPromptCopied(true);
+    setTimeout(() => setPromptCopied(false), 2000);
   };
 
   const openPreview = async () => {
@@ -369,15 +383,37 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <div className="min-w-0 flex flex-1 items-center gap-1.5">
-                <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+                {batchImageIndex && <span className="shrink-0 text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
+                <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
                 {hasPromptVariant && (
                   <Popover>
                     <PopoverTrigger className="shrink-0 rounded border border-primary/30 px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/5">
                       {t('task.effectiveInstruction')}
                     </PopoverTrigger>
                     <PopoverContent align="start" className="w-80 space-y-2">
-                      <p className="text-sm font-medium">{t('task.effectivePrompt')}</p>
-                      <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{effectivePrompt}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">{t('task.effectiveInstruction')}</p>
+                        <Button variant="ghost" size="icon-sm" onClick={() => void copyPromptValue(promptVariant)} title={t('task.copyInstruction')} aria-label={t('task.copyInstruction')}>
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{promptVariant}</p>
+                    </PopoverContent>
+                  </Popover>
+                )}
+                {hasPromptVariant && (
+                  <Popover>
+                    <PopoverTrigger className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">
+                      {t('task.mainPrompt')}
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">{t('task.mainPrompt')}</p>
+                        <Button variant="ghost" size="icon-sm" onClick={() => void copyPromptValue(job.prompt)} disabled={!job.prompt.trim()} title={t('task.copyMainPrompt')} aria-label={t('task.copyMainPrompt')}>
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{job.prompt || t('task.noMainPrompt')}</p>
                     </PopoverContent>
                   </Popover>
                 )}

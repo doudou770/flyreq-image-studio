@@ -45,6 +45,12 @@ export interface StoredJob {
   warning?: string;
   imageData?: string;
   parallelCount?: number;
+  /** 同一批量提交的稳定分组标识，用于保持每张图片的展示顺序。 */
+  batchId?: string;
+  /** 同一批量提交共用的提交时间，用于避免轮询回写服务端时间后拆散批次。 */
+  batchCreatedAt?: string;
+  /** 当前图片在批量提交中的从零开始序号。 */
+  batchIndex?: number;
   promptVariants?: string[];
   /** 本张图片实际发送给上游的完整提示词，旧记录缺失时可由主提示词和附加提示词合成。 */
   effectivePrompt?: string;
@@ -85,6 +91,63 @@ export function getImageSrc(imageData: string): string {
   }
 
   return `data:image/png;base64,${imageData}`;
+}
+
+/**
+ * 按提交时间倒序排列任务，并保持同一批量任务按图片序号倒序展示。
+ * @param left 待比较的左侧任务。
+ * @param right 待比较的右侧任务。
+ * @returns 负数表示左侧任务应排在前面，正数表示右侧任务应排在前面。
+ */
+export function compareStoredJobsByDisplayOrder(left: StoredJob, right: StoredJob): number {
+  if (left.batchId && left.batchId === right.batchId) {
+    return (right.batchIndex ?? 0) - (left.batchIndex ?? 0);
+  }
+  const leftCreatedAt = left.batchId ? left.batchCreatedAt || left.created_at : left.created_at;
+  const rightCreatedAt = right.batchId ? right.batchCreatedAt || right.created_at : right.created_at;
+  return +new Date(rightCreatedAt) - +new Date(leftCreatedAt);
+}
+
+/**
+ * 为缺少批次提交时间的旧历史任务补齐同批次最早的提交时间。
+ * @param jobs 从本地存储读取的历史任务。
+ * @returns 已补齐旧批次时间字段的任务列表；已有字段的任务保持不变。
+ */
+export function restoreStoredJobBatchCreatedAt(jobs: StoredJob[]): StoredJob[] {
+  const earliestCreatedAtByBatch = new Map<string, string>();
+  for (const job of jobs) {
+    if (!job.batchId) continue;
+    const candidate = job.batchCreatedAt || job.created_at;
+    const earliest = earliestCreatedAtByBatch.get(job.batchId);
+    if (!earliest || +new Date(candidate) < +new Date(earliest)) {
+      earliestCreatedAtByBatch.set(job.batchId, candidate);
+    }
+  }
+
+  return jobs.map(job => (
+    job.batchId && !job.batchCreatedAt
+      ? { ...job, batchCreatedAt: earliestCreatedAtByBatch.get(job.batchId) || job.created_at }
+      : job
+  ));
+}
+
+/**
+ * 将批次中的图片序号转换为紧凑的圈号标识。
+ * @param index 从一开始的图片序号。
+ * @returns 1 至 20 返回对应圈号，其余序号返回普通数字文本。
+ */
+export function getBatchImageMarker(index: number): string {
+  const markers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳'];
+  return markers[index - 1] || String(index);
+}
+
+/**
+ * 获取任务卡片应直接展示的提示词，批量任务优先展示本张附加指令。
+ * @param job 需要展示的历史任务。
+ * @returns 有附加指令时返回该指令，否则返回主提示词。
+ */
+export function getStoredJobDisplayPrompt(job: StoredJob): string {
+  return job.promptVariants?.[0]?.trim() || job.prompt;
 }
 
 function toPersistedImageRefs(result: StoredJob): string[] | undefined {

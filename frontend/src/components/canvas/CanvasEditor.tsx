@@ -1787,7 +1787,7 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
 
       <PromptOptimizeDialog
         open={optimizeOpen}
-        onOpenChange={(open) => { if (!open) handleOptimizeCancel(); setOptimizeOpen(open); }}
+        onOpenChange={setOptimizeOpen}
         originalPrompt={optimizeOriginalPrompt}
         optimizedPrompt={optimizedText}
         loading={optimizing}

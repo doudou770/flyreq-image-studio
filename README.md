@@ -22,6 +22,20 @@ FlyReq Image Studio is a self-hosted workspace for AI image generation. It combi
 
 Built from [tianjiangqiji/nova-image-studio](https://github.com/tianjiangqiji/nova-image-studio) and maintained at [doudou770/flyreq-image-studio](https://github.com/doudou770/flyreq-image-studio).
 
+## Supported Image Models
+
+| Provider / family | Model ID |
+| :--- | :--- |
+| **Banana family** | `gemini-3-pro-image` |
+| | `gemini-3.1-flash-image` |
+| | `gemini-3.1-flash-lite-image` |
+| **GPT family** | `gpt-image-2` |
+| | `gpt-image-1.5` |
+| | `gpt-image-1` |
+| **Grok family** | `grok-imagine-image` |
+| | `grok-imagine-image-quality` |
+| **Custom** | Custom model IDs are supported |
+
 ### Highlights
 
 - **Provider-neutral models:** Image and text models are configured independently, each with its own API key, base URL, protocol, and capability limits.
@@ -239,6 +253,16 @@ The repository includes a manual release workflow at `.github/workflows/release.
 **Why can an upstream console show success while FlyReq Image reports 504?**
 
 Cloudflare, Nginx, or another gateway can close a long-running response before the upstream image job finishes. Prefer a Docker-internal or DNS-only upstream address, configure `FLYREQ_BASE_URL_REWRITE_MAP`, and enable streaming image requests for compatible OpenAI Images endpoints. The original upstream error is kept in the task failure message.
+
+---
+
+## Acknowledgements
+
+The infinite-canvas workspace is built on [infinite-canvas](https://github.com/basketikun/infinite-canvas). Thanks to its author, [basketikun](https://github.com/basketikun), for the open-source contribution, and to [tianjiangqiji](https://github.com/tianjiangqiji/nova-image-studio) for the open-source UI.
+
+Thanks to the [Linux.do](https://linux.do/) community for its support.
+
+Thanks to the [NodeSeek](https://www.nodeseek.com/) community for its support.
 
 ---
 

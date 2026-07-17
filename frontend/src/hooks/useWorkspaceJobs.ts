@@ -7,6 +7,8 @@ import {
   saveImage,
   saveJobs,
   IMG_STORE,
+  compareStoredJobsByDisplayOrder,
+  restoreStoredJobBatchCreatedAt,
   type Mode,
   type StoredJob,
 } from '@/lib/job-store';
@@ -20,8 +22,12 @@ function isWaitingJob(job: StoredJob): boolean {
   return job.status === 'processing' || job.status === 'queued' || job.status === '排队中';
 }
 
+/**
+ * 加载本地任务，并修复无法继续追踪的旧等待任务与缺失模型、批次时间字段。
+ * @returns 可直接用于工作区状态初始化的任务列表。
+ */
 function loadInitialJobs(): StoredJob[] {
-  return loadJobs().map(job => ({
+  return restoreStoredJobBatchCreatedAt(loadJobs()).map(job => ({
     ...job,
     ...(isWaitingJob(job) && !job.serverTaskId ? { status: 'failed' as const, error: '页面刷新，任务已中断', terminal: true } : {}),
     ...(!job.model ? { model: getDefaultModelId() as ModelId } : {}),
@@ -180,11 +186,11 @@ export function useWorkspaceJobs() {
   }, [persistJobs]);
 
   const textJobs = useMemo(
-    () => jobs.filter(job => job.mode === 'text-to-image').sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
+    () => jobs.filter(job => job.mode === 'text-to-image').sort(compareStoredJobsByDisplayOrder),
     [jobs]
   );
   const imageJobs = useMemo(
-    () => jobs.filter(job => job.mode === 'image-to-image').sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
+    () => jobs.filter(job => job.mode === 'image-to-image').sort(compareStoredJobsByDisplayOrder),
     [jobs]
   );
 

@@ -599,7 +599,7 @@ export function GifGenerationWorkspace({ wideMode = false, hasApiKey, onConfigur
 
       <PromptOptimizeDialog
         open={optimizeOpen}
-        onOpenChange={(open) => { if (!open) handleOptimizeCancel(); setOptimizeOpen(open); }}
+        onOpenChange={setOptimizeOpen}
         originalPrompt={prompt}
         optimizedPrompt={optimizedText}
         loading={optimizing}
