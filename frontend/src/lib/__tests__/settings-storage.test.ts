@@ -8,6 +8,7 @@ import {
   setPromptOptimizeEnabled,
 } from '@/lib/settings-storage';
 import { BUILTIN_IMAGE_PRESETS, getResolvedImageModelId, loadRegistry } from '@/lib/flyreq-models';
+import { saveFirstImageModelAsFormDefault } from '@/lib/form-settings';
 import { resolveImageTaskProvider } from '@/lib/flyreq-task-client';
 
 const storage = new Map<string, string>();
@@ -76,6 +77,25 @@ describe('settings-storage model availability', () => {
 
   it('keeps prompt optimize disabled by default', () => {
     expect(isPromptOptimizeEnabled()).toBe(false);
+  });
+
+  it('sets the first saved image model as the default for every image form', () => {
+    storage.set('flyreq-image-generation-settings', JSON.stringify({ outputSize: '2K' }));
+    storage.set('flyreq-t2i-settings', JSON.stringify({ model: 'old-model', aspectRatio: '16:9' }));
+
+    saveFirstImageModelAsFormDefault('external-image-model');
+
+    expect(JSON.parse(storage.get('flyreq-image-generation-settings') || '{}')).toEqual({
+      model: 'external-image-model',
+      outputSize: '2K',
+    });
+    expect(JSON.parse(storage.get('flyreq-t2i-settings') || '{}')).toEqual({
+      model: 'external-image-model',
+      aspectRatio: '16:9',
+    });
+    expect(JSON.parse(storage.get('flyreq-i2i-settings') || '{}')).toEqual({
+      model: 'external-image-model',
+    });
   });
 
   it('ships a default FlyReq image model without unlocking image workflows before the key is filled', () => {

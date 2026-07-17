@@ -15,6 +15,7 @@ import { PromptOptimizeDialog } from '@/components/PromptOptimizeDialog';
 import { AgentAssetPickerDialog, AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
+import { useImageModelDefaultRefresh } from '@/hooks/useImageModelDefaultRefresh';
 import { streamPromptOptimize, type StreamPromptOptimizeHandle } from '@/lib/prompt-optimize-client';
 import { requireDefaultConfiguredTextModel } from '@/lib/model-endpoints';
 import { addTextAsset, getAssetBlob, type ImageAsset, type TextAsset } from '@/lib/asset-store';
@@ -158,6 +159,7 @@ export function ImageToImageForm({
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
   const optimizeHandleRef = useRef<StreamPromptOptimizeHandle | null>(null);
   const { enabled: promptOptimizeEnabled } = usePromptOptimizeSetting();
+  const imageModelDefaultRefreshVersion = useImageModelDefaultRefresh();
 
   const handleOptimize = useCallback(() => {
     if (!prompt.trim()) return;
@@ -341,7 +343,7 @@ export function ImageToImageForm({
     return () => {
       cancelled = true;
     };
-  }, [initialData]);
+  }, [imageModelDefaultRefreshVersion, initialData]);
 
   // 保存设置到缓存
   useEffect(() => {

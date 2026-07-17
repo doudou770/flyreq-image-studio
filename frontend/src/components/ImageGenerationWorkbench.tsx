@@ -13,6 +13,7 @@ import { AgentAssetPickerDialog, AgentTextAssetPickerDialog } from '@/components
 import { GenerationParamsBar, type GenerationParamsValue } from '@/components/GenerationParamsBar';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
+import { useImageModelDefaultRefresh } from '@/hooks/useImageModelDefaultRefresh';
 import { getEffectivePromptSubmissionShortcutLabels, usePromptSubmissionShortcut } from '@/hooks/usePromptSubmissionShortcut';
 import { PromptSubmissionShortcutMenu } from '@/components/PromptSubmissionShortcutMenu';
 import { useI18n } from '@/components/LanguageProvider';
@@ -155,6 +156,7 @@ export function ImageGenerationWorkbench({
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
   const optimizeHandleRef = useRef<StreamPromptOptimizeHandle | null>(null);
   const { enabled: promptOptimizeEnabled } = usePromptOptimizeSetting();
+  const imageModelDefaultRefreshVersion = useImageModelDefaultRefresh();
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
   const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport);
 
@@ -250,7 +252,7 @@ export function ImageGenerationWorkbench({
     return () => {
       cancelled = true;
     };
-  }, [initialData]);
+  }, [imageModelDefaultRefreshVersion, initialData]);
 
   useEffect(() => {
     if (!settingsReady) return;
