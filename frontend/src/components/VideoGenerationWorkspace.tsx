@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowUp, Check, ChevronDown, CircleStop, Clock3, CloudUpload, Copy, Download, FileAudio, FileImage, FileVideo, Images, Info, Loader2, Maximize, RefreshCw, ScanLine, Sparkles, Trash2, Video, X } from 'lucide-react';
 import { useI18n } from '@/components/LanguageProvider';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,10 +21,12 @@ import {
   cacheVideoReferenceFiles,
   deleteVideoBlob,
   deleteVideoReferenceFiles,
+  fetchVideoBlob,
   loadVideoJobs,
   restoreVideoBlobUrl,
   restoreVideoReferenceFiles,
   saveVideoJobs,
+  storeVideoBlob,
   type StoredVideoJob,
   type VideoReferenceFiles,
 } from '@/lib/video-job-store';
@@ -58,6 +60,30 @@ interface VideoReferenceImageChipsProps {
 interface VideoSizePreviewProps {
   size: string;
   selected: boolean;
+}
+
+type VideoPlaybackState = 'loading' | 'ready' | 'error' | 'repairing';
+
+/**
+ * 获取视频任务可以重新请求的服务端地址，并兼容旧版本地任务记录。
+ * @param job 视频任务记录。
+ * @returns 服务端视频地址；任务没有服务端标识时返回空值。
+ */
+function getVideoJobSourceUrl(job: StoredVideoJob): string | undefined {
+  if (job.videoSourceUrl?.trim()) return job.videoSourceUrl;
+  if (job.serverTaskId?.trim()) return `/api/flyreq/videos/${encodeURIComponent(job.serverTaskId)}`;
+  return undefined;
+}
+
+/**
+ * 为视频重新加载地址追加一次性查询参数，绕过浏览器对失败响应的缓存。
+ * @param url 原始视频地址。
+ * @returns 带重试标识的视频地址；对象 URL 保持不变。
+ */
+function appendVideoRetryToken(url: string): string {
+  if (url.startsWith('blob:')) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}video_retry=${Date.now()}`;
 }
 
 /**
@@ -202,7 +228,7 @@ function MediaAttachmentTile({ file, onRemove }: MediaAttachmentTileProps) {
     <div className="group relative h-16 w-16 shrink-0 overflow-visible">
       <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg bg-muted">
         {mediaType === 'IMG' && <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />}
-        {mediaType === 'VIDEO' && <video src={previewUrl} aria-label={file.name} className="h-full w-full object-cover" muted preload="metadata" />}
+        {mediaType === 'VIDEO' && <video src={previewUrl} aria-label={file.name} className="h-full w-full object-cover" muted playsInline preload="metadata" />}
         {mediaType === 'AUDIO' && <FileAudio aria-label={file.name} className="size-7 text-muted-foreground" />}
       </div>
       <div className="absolute bottom-0.5 left-0.5 max-w-[60px] truncate rounded bg-black/70 px-1 py-0.5 text-[9px] leading-none text-white">{mediaType}</div>
@@ -352,15 +378,43 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const [optimizedText, setOptimizedText] = useState('');
   const [optimizing, setOptimizing] = useState(false);
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
+  const [videoPlaybackStates, setVideoPlaybackStates] = useState<Record<string, VideoPlaybackState>>({});
+  const [downloadingVideoJobIds, setDownloadingVideoJobIds] = useState<Set<string>>(new Set());
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const optimizeHandleRef = useRef<StreamPromptOptimizeHandle | null>(null);
   const jobsRef = useRef(jobs);
+  const componentMountedRef = useRef(false);
+  const videoRecoveryAttemptsRef = useRef<Set<string>>(new Set());
+  const synchronizingVideoJobIdsRef = useRef<Set<string>>(new Set());
+  const downloadingVideoJobIdsRef = useRef<Set<string>>(new Set());
+  const videoTransferAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const videoBlobDeletionPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  const videoBlobWritePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  const videoBlobInvalidationVersionsRef = useRef<Map<string, number>>(new Map());
   const referenceFilesRef = useRef<Map<string, VideoReferenceFiles>>(new Map());
   const referenceCachePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
   const { enabled: promptOptimizeEnabled, available: promptOptimizeAvailable } = usePromptOptimizeSetting();
   const promptOptimizeUsable = promptOptimizeEnabled && promptOptimizeAvailable;
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
   const selectedModel = useMemo(() => models.find(model => model.id === modelId), [modelId, models]);
+
+  /**
+   * 使指定任务的当前视频缓存失效，并串行删除 IndexedDB 记录。
+   * @param jobId 本地视频任务标识。
+   * @returns 本次缓存删除完成后兑现的 Promise。
+   */
+  const invalidateVideoBlobCache = useCallback((jobId: string): Promise<void> => {
+    const nextVersion = (videoBlobInvalidationVersionsRef.current.get(jobId) || 0) + 1;
+    videoBlobInvalidationVersionsRef.current.set(jobId, nextVersion);
+    const previousDeletion = videoBlobDeletionPromisesRef.current.get(jobId) || Promise.resolve();
+    const pendingWrite = videoBlobWritePromisesRef.current.get(jobId) || Promise.resolve();
+    const deletion = Promise.allSettled([previousDeletion, pendingWrite]).then(() => deleteVideoBlob(jobId)).catch(() => undefined);
+    videoBlobDeletionPromisesRef.current.set(jobId, deletion);
+    void deletion.finally(() => {
+      if (videoBlobDeletionPromisesRef.current.get(jobId) === deletion) videoBlobDeletionPromisesRef.current.delete(jobId);
+    });
+    return deletion;
+  }, []);
 
   useEffect(() => {
     if (!jobs.some(job => job.status === '排队中' || job.status === 'processing')) return;
@@ -489,14 +543,22 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     jobsRef.current = jobs;
   }, [jobs]);
 
-  useEffect(() => () => {
-    // 第一步终止仍在读取的提示词优化流，避免卸载后继续执行状态回调。
-    optimizeHandleRef.current?.abort();
-    optimizeHandleRef.current = null;
-    // 第二步释放历史任务创建的对象 URL；IndexedDB 中的原始 Blob 保持不变，可在下次进入时重新恢复。
-    for (const job of jobsRef.current) {
-      if (job.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(job.videoUrl);
-    }
+  useEffect(() => {
+    componentMountedRef.current = true;
+    const transferAbortControllers = videoTransferAbortControllersRef.current;
+    return () => {
+      componentMountedRef.current = false;
+      // 第一步终止仍在读取的提示词优化流，避免卸载后继续执行状态回调。
+      optimizeHandleRef.current?.abort();
+      optimizeHandleRef.current = null;
+      // 第二步终止视频缓存与下载请求，防止离开工作台后继续创建对象 URL 或触发下载。
+      for (const controller of transferAbortControllers.values()) controller.abort();
+      transferAbortControllers.clear();
+      // 第三步释放历史任务创建的对象 URL；IndexedDB 中的原始 Blob 保持不变，可在下次进入时重新恢复。
+      for (const job of jobsRef.current) {
+        if (job.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(job.videoUrl);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -536,8 +598,13 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
         setJobs(current => current.map(job => {
           const restoredItem = restored.find(item => item.id === job.id);
           if (!restoredItem) return job;
-          if (restoredItem.url) return { ...job, videoUrl: restoredItem.url };
-          // 元数据声明已缓存但 Blob 已缺失时只写入一次终态，避免 effect 持续恢复和更新。
+          if (restoredItem.url) return { ...job, videoUrl: restoredItem.url, cached: true };
+          const sourceUrl = getVideoJobSourceUrl(job);
+          if (sourceUrl) {
+            // 本地 Blob 缺失时保留已完成任务，回退到服务端完整文件继续播放。
+            return { ...job, status: 'completed', videoUrl: sourceUrl, cached: false, error: undefined };
+          }
+          // 没有服务端回退地址时只写入一次终态，避免 effect 持续恢复和更新。
           return {
             ...job,
             status: 'failed',
@@ -557,19 +624,36 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const refreshPendingJobs = useCallback(async (): Promise<void> => {
     const pending = jobs.filter(job => job.serverTaskId && (job.status === '排队中' || job.status === 'processing'));
     await Promise.all(pending.map(async job => {
+      if (synchronizingVideoJobIdsRef.current.has(job.id)) return;
+      synchronizingVideoJobIdsRef.current.add(job.id);
+      let transferController: AbortController | undefined;
       try {
         const task = await getVideoTask(job.serverTaskId!);
+        if (!componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) return;
         if (task.status === 'completed' && task.result?.videoUrl) {
           let videoUrl = task.result.videoUrl;
           let cached = false;
           try {
-            videoUrl = await cacheVideoBlob(job.id, task.result.videoUrl);
+            transferController = new AbortController();
+            videoTransferAbortControllersRef.current.set(job.id, transferController);
+            videoUrl = await cacheVideoBlob(job.id, task.result.videoUrl, transferController.signal);
             cached = true;
-            await acknowledgeVideoTask(job.serverTaskId!);
           } catch {
             cached = false;
           }
-          setJobs(current => current.map(item => item.id === job.id ? { ...item, status: 'completed', completedAt: task.completedAt, durationMs: task.durationMs, durationUpdatedAt: new Date().toISOString(), videoUrl, cached } : item));
+          if (!componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) {
+            if (videoUrl.startsWith('blob:')) {
+              // 异步缓存完成后任务可能已删除或工作台已卸载，同时清理对象 URL 和刚写回的 IndexedDB Blob。
+              URL.revokeObjectURL(videoUrl);
+              void invalidateVideoBlobCache(job.id);
+            }
+            return;
+          }
+          setJobs(current => current.map(item => item.id === job.id ? { ...item, status: 'completed', completedAt: task.completedAt, durationMs: task.durationMs, durationUpdatedAt: new Date().toISOString(), videoUrl, videoSourceUrl: task.result!.videoUrl, cached } : item));
+          if (cached) {
+            // 只有任务仍存在且本地缓存成功时才缩短服务端保留期，确认失败不影响本地完成状态。
+            void acknowledgeVideoTask(job.serverTaskId!).catch(() => undefined);
+          }
         } else if (task.status === 'cancelled') {
           setJobs(current => current.map(item => item.id === job.id ? { ...item, status: 'cancelled', completedAt: task.completedAt || new Date().toISOString(), durationMs: task.durationMs, durationUpdatedAt: new Date().toISOString(), error: task.error || t('video.cancelled') } : item));
         } else if (task.status === 'failed' || task.status === 'expired') {
@@ -578,10 +662,163 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
           setJobs(current => current.map(item => item.id === job.id ? { ...item, status: task.status === 'queued' ? '排队中' : task.status as '排队中' | 'processing', durationMs: task.durationMs, durationUpdatedAt: new Date().toISOString() } : item));
         }
       } catch (error) {
+        if (!componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) return;
         showToast(error instanceof Error ? error.message : t('video.failed'), 'error');
+      } finally {
+        if (transferController && videoTransferAbortControllersRef.current.get(job.id) === transferController) {
+          videoTransferAbortControllersRef.current.delete(job.id);
+        }
+        synchronizingVideoJobIdsRef.current.delete(job.id);
       }
     }));
-  }, [jobs, showToast, t]);
+  }, [invalidateVideoBlobCache, jobs, showToast, t]);
+
+  /**
+   * 处理视频元素播放失败，首次失败自动清理坏缓存并切换到服务端文件。
+   * @param jobId 本地视频任务标识。
+   * @returns 无返回值；播放器状态和视频地址通过任务状态更新。
+   */
+  const handleVideoPlaybackError = useCallback((jobId: string): void => {
+    const job = jobsRef.current.find(item => item.id === jobId);
+    if (!job) return;
+    if (job.videoUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(job.videoUrl);
+      void invalidateVideoBlobCache(job.id);
+    }
+    const sourceUrl = getVideoJobSourceUrl(job);
+    if (sourceUrl && !videoRecoveryAttemptsRef.current.has(jobId)) {
+      videoRecoveryAttemptsRef.current.add(jobId);
+      setVideoPlaybackStates(current => ({ ...current, [jobId]: 'repairing' }));
+      setJobs(current => current.map(item => item.id === jobId
+        ? { ...item, videoUrl: appendVideoRetryToken(sourceUrl), videoSourceUrl: sourceUrl, cached: false }
+        : item));
+      return;
+    }
+    if (!sourceUrl) {
+      setJobs(current => current.map(item => item.id === jobId
+        ? { ...item, videoUrl: undefined, cached: false }
+        : item));
+    }
+    setVideoPlaybackStates(current => ({ ...current, [jobId]: 'error' }));
+  }, [invalidateVideoBlobCache]);
+
+  /**
+   * 记录视频已具备播放条件，并清除本次自动恢复标记。
+   * @param jobId 本地视频任务标识。
+   * @returns 无返回值。
+   */
+  const handleVideoCanPlay = useCallback((jobId: string): void => {
+    videoRecoveryAttemptsRef.current.delete(jobId);
+    setVideoPlaybackStates(current => ({ ...current, [jobId]: 'ready' }));
+  }, []);
+
+  /**
+   * 手动重新加载视频，不重新提交生成任务。
+   * @param job 待重新加载的视频任务。
+   * @returns 无返回值；重新加载地址通过任务状态更新。
+   */
+  const handleReloadVideo = useCallback((job: StoredVideoJob): void => {
+    const sourceUrl = getVideoJobSourceUrl(job);
+    if (!sourceUrl) {
+      setVideoPlaybackStates(current => ({ ...current, [job.id]: 'error' }));
+      return;
+    }
+    if (job.videoUrl?.startsWith('blob:') && job.videoUrl !== sourceUrl) URL.revokeObjectURL(job.videoUrl);
+    void invalidateVideoBlobCache(job.id);
+    videoRecoveryAttemptsRef.current.delete(job.id);
+    setVideoPlaybackStates(current => ({ ...current, [job.id]: 'repairing' }));
+    setJobs(current => current.map(item => item.id === job.id
+      ? { ...item, videoUrl: appendVideoRetryToken(sourceUrl), videoSourceUrl: sourceUrl, cached: false }
+      : item));
+  }, [invalidateVideoBlobCache]);
+
+  /**
+   * 下载完整视频并同步修复页面播放器，避免下载成功后仍停留在坏资源。
+   * @param job 待下载的视频任务。
+   * @returns 下载、缓存和播放器地址更新完成后兑现的 Promise。
+   */
+  const handleDownloadVideo = useCallback(async (job: StoredVideoJob): Promise<void> => {
+    if (downloadingVideoJobIdsRef.current.has(job.id)) return;
+    const currentBlobUrl = job.videoUrl?.startsWith('blob:') ? job.videoUrl : undefined;
+    const sourceUrl = currentBlobUrl || getVideoJobSourceUrl(job);
+    if (!sourceUrl) {
+      showToast(t('video.downloadFailed'), 'error');
+      return;
+    }
+    if (currentBlobUrl) {
+      const anchor = document.createElement('a');
+      anchor.href = currentBlobUrl;
+      anchor.download = `video-${job.id}.mp4`;
+      anchor.click();
+      return;
+    }
+    downloadingVideoJobIdsRef.current.add(job.id);
+    const transferController = new AbortController();
+    videoTransferAbortControllersRef.current.set(job.id, transferController);
+    setDownloadingVideoJobIds(current => new Set(current).add(job.id));
+    try {
+      const blob = await fetchVideoBlob(appendVideoRetryToken(sourceUrl), transferController.signal);
+      if (!componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) return;
+      const pendingDeletion = videoBlobDeletionPromisesRef.current.get(job.id);
+      if (pendingDeletion) await pendingDeletion;
+      if (!componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) return;
+      const blobUrl = URL.createObjectURL(blob);
+      const cacheInvalidationVersion = videoBlobInvalidationVersionsRef.current.get(job.id) || 0;
+      const latestJob = jobsRef.current.find(item => item.id === job.id);
+      if (latestJob?.videoUrl?.startsWith('blob:') && latestJob.videoUrl !== blobUrl) URL.revokeObjectURL(latestJob.videoUrl);
+      setJobs(current => current.map(item => item.id === job.id
+        ? { ...item, videoUrl: blobUrl, videoSourceUrl: getVideoJobSourceUrl(item) || sourceUrl, cached: false, error: undefined }
+        : item));
+      videoRecoveryAttemptsRef.current.delete(job.id);
+      setVideoPlaybackStates(current => ({ ...current, [job.id]: 'ready' }));
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = `video-${job.id}.mp4`;
+      anchor.click();
+      const storePromise = storeVideoBlob(job.id, blob);
+      videoBlobWritePromisesRef.current.set(job.id, storePromise);
+      void storePromise.then(() => {
+        if (videoBlobWritePromisesRef.current.get(job.id) === storePromise) videoBlobWritePromisesRef.current.delete(job.id);
+      }, () => {
+        if (videoBlobWritePromisesRef.current.get(job.id) === storePromise) videoBlobWritePromisesRef.current.delete(job.id);
+      });
+      void storePromise.then(
+        () => {
+          const cacheWasInvalidated = (videoBlobInvalidationVersionsRef.current.get(job.id) || 0) !== cacheInvalidationVersion;
+          if (cacheWasInvalidated || !componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) {
+            // 缓存写入期间记录被删除或工作台卸载时，清理无法再由界面管理的缓存和对象 URL。
+            void invalidateVideoBlobCache(job.id);
+            URL.revokeObjectURL(blobUrl);
+            return;
+          }
+          setJobs(current => current.map(item => item.id === job.id ? { ...item, cached: true } : item));
+          if (job.serverTaskId) void acknowledgeVideoTask(job.serverTaskId).catch(() => undefined);
+        },
+        error => {
+          // 本地缓存失败不能撤销已经完成的下载和当前页面播放。
+          console.error('保存视频缓存失败', error);
+          if (!componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) URL.revokeObjectURL(blobUrl);
+        },
+      );
+    } catch (error) {
+      if (transferController.signal.aborted || !componentMountedRef.current || !jobsRef.current.some(item => item.id === job.id)) return;
+      console.error('下载视频失败', error);
+      showToast(t('video.downloadFailed'), 'error');
+      setVideoPlaybackStates(current => ({ ...current, [job.id]: 'error' }));
+    } finally {
+      if (videoTransferAbortControllersRef.current.get(job.id) === transferController) {
+        videoTransferAbortControllersRef.current.delete(job.id);
+      }
+      downloadingVideoJobIdsRef.current.delete(job.id);
+      if (componentMountedRef.current) {
+        setDownloadingVideoJobIds(current => {
+          const next = new Set(current);
+          next.delete(job.id);
+          return next;
+        });
+      }
+    }
+  }, [invalidateVideoBlobCache, showToast, t]);
 
   useEffect(() => {
     if (!jobs.some(job => job.status === '排队中' || job.status === 'processing')) return;
@@ -897,8 +1134,12 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
    * @returns 无返回值。
    */
   const removeJob = useCallback((job: StoredVideoJob) => {
+    videoTransferAbortControllersRef.current.get(job.id)?.abort();
+    videoTransferAbortControllersRef.current.delete(job.id);
+    videoRecoveryAttemptsRef.current.delete(job.id);
+    downloadingVideoJobIdsRef.current.delete(job.id);
     if (job.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(job.videoUrl);
-    void deleteVideoBlob(job.id).catch(() => undefined);
+    void invalidateVideoBlobCache(job.id);
     // 先同步更新引用，保证连续删除操作始终基于最新任务列表。
     const remainingJobs = jobsRef.current.filter(item => item.id !== job.id);
     jobsRef.current = remainingJobs;
@@ -918,7 +1159,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
       }
     }
     setJobs(current => current.filter(item => item.id !== job.id));
-  }, []);
+  }, [invalidateVideoBlobCache]);
 
   /**
    * 将视频任务实际发送给上游的完整提示词复制到系统剪贴板。
@@ -1318,7 +1559,20 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
         <div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{t('video.history')}</h2><span className="text-xs text-muted-foreground">{jobs.length}</span></div>
         {jobs.length === 0 ? <div className="flex min-h-64 items-center justify-center text-sm text-muted-foreground">{t('video.emptyHistory')}</div> : <div className="space-y-3">{jobs.map(job => (
           <article key={job.id} className="overflow-hidden rounded-lg border bg-card">
-            {job.status === 'completed' && job.videoUrl ? <video className="aspect-video w-full bg-black object-contain" src={job.videoUrl} controls preload="metadata" /> : <div className="flex aspect-video items-center justify-center bg-muted"><div className="flex items-center gap-2 text-sm text-muted-foreground">{job.status === 'failed' || job.status === 'cancelled' ? <X className="size-5 text-destructive" /> : <Loader2 className="size-5 animate-spin" />}{job.status === 'cancelled' ? t('video.cancelled') : job.status === 'failed' ? t('video.failed') : job.status === '排队中' ? t('video.queued') : t('video.processing')}</div></div>}
+            {job.status === 'completed' && (job.videoUrl || (getVideoJobSourceUrl(job) && !job.cached)) ? <div className="relative">
+              <video
+                key={job.videoUrl || getVideoJobSourceUrl(job)}
+                className="aspect-video w-full bg-black object-contain"
+                src={job.videoUrl || getVideoJobSourceUrl(job)}
+                controls
+                playsInline
+                preload="metadata"
+                onCanPlay={() => handleVideoCanPlay(job.id)}
+                onError={() => handleVideoPlaybackError(job.id)}
+              />
+              {videoPlaybackStates[job.id] === 'repairing' && <div className="absolute inset-x-0 bottom-0 bg-black/70 px-3 py-2 text-center text-xs text-white">{t('video.reloading')}</div>}
+              {videoPlaybackStates[job.id] === 'error' && <div className="absolute inset-x-0 bottom-0 bg-black/70 px-3 py-2 text-center text-xs text-destructive-foreground">{t('video.playbackFailed')}</div>}
+            </div> : <div className="flex aspect-video items-center justify-center bg-muted"><div className="flex items-center gap-2 text-sm text-muted-foreground">{job.status === 'failed' || job.status === 'cancelled' ? <X className="size-5 text-destructive" /> : <Loader2 className="size-5 animate-spin" />}{job.status === 'cancelled' ? t('video.cancelled') : job.status === 'failed' ? t('video.failed') : job.status === 'completed' && job.cached ? t('video.caching') : job.status === '排队中' ? t('video.queued') : t('video.processing')}</div></div>}
             <div className="space-y-3 p-3">
               {job.batchId && typeof job.batchIndex === 'number' && <p className="text-xs font-medium text-primary">{t('video.batchVideo', { index: job.batchIndex + 1 })}</p>}
               <div className="flex items-start gap-2">
@@ -1346,7 +1600,8 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span>{job.videoSize}</span>{job.protocol === 'xai' && job.aspectRatio && <span>{job.aspectRatio}</span>}<span>{t('video.createdAt', { time: formatJobTime(job.createdAt, locale) })}</span></div>
               {job.error && <p className="rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">{job.error}</p>}
               <div className="flex flex-wrap gap-2">
-                {job.status === 'completed' && job.videoUrl && <a className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-2')} href={job.videoUrl} download={`video-${job.id}.mp4`}><Download className="size-4" />{t('video.download')}</a>}
+                {job.status === 'completed' && (job.videoUrl || (getVideoJobSourceUrl(job) && !job.cached)) && <Button variant="outline" size="sm" className="gap-2" disabled={downloadingVideoJobIds.has(job.id)} onClick={() => void handleDownloadVideo(job)}>{downloadingVideoJobIds.has(job.id) ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}{t('video.download')}</Button>}
+                {job.status === 'completed' && videoPlaybackStates[job.id] === 'error' && getVideoJobSourceUrl(job) && <Button variant="outline" size="sm" className="gap-2" onClick={() => handleReloadVideo(job)}><RefreshCw className="size-4" />{t('video.reload')}</Button>}
                 {(job.status === '排队中' || job.status === 'processing') && <Button variant="outline" size="sm" className="gap-2" onClick={() => void refreshPendingJobs()}><RefreshCw className="size-4" />{t('video.checkStatus')}</Button>}
                 {(job.status === '排队中' || job.status === 'processing') && job.serverTaskId && <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled={cancellingTaskIds.has(job.id)} onClick={() => void handleCancelJob(job)}>{cancellingTaskIds.has(job.id) ? <Loader2 className="size-4 animate-spin" /> : <CircleStop className="size-4" />}{t('video.cancel')}</Button>}
                 <Button variant="outline" size="sm" className="gap-2" disabled={Boolean(restoringJobId)} onClick={() => void restoreJob(job)}>{restoringJobId === job.id ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}{t('video.retry')}</Button>
