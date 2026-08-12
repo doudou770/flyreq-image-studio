@@ -4,7 +4,7 @@
 
 <div align="center">
 
-**A self-hosted AI image studio for multi-model workflows, real-time jobs, and production deployments.**
+**Self-hosted AI Image Studio · Video Studio · Multi-model Protocols · Infinite Canvas · Asset Library · PWA**
 
 [![Version](https://img.shields.io/badge/version-v1.5.1-blue.svg)](https://github.com/doudou770/flyreq-image-studio)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
@@ -18,34 +18,30 @@
 
 ## Overview
 
-FlyReq Image Studio is a self-hosted workspace for AI image generation. It combines a static Next.js 16 + React 19 PWA frontend with a lightweight Node.js, SQLite, and WebSocket backend that queues jobs and proxies image-generation APIs.
+FlyReq Image Studio is a self-hosted AI image and video creation workspace for individuals and teams. It combines a static Next.js 16 + React 19 PWA frontend with a lightweight Node.js, SQLite, and WebSocket backend that queues jobs and proxies image- and video-generation APIs.
 
 Built from [tianjiangqiji/nova-image-studio](https://github.com/tianjiangqiji/nova-image-studio) and maintained at [doudou770/flyreq-image-studio](https://github.com/doudou770/flyreq-image-studio).
 
-## Supported Image Models
+**Highlights:**
 
-| Provider / family | Model ID |
-| :--- | :--- |
-| **Banana family** | `gemini-3-pro-image` |
-| | `gemini-3.1-flash-image` |
-| | `gemini-3.1-flash-lite-image` |
-| **GPT family** | `gpt-image-2` |
-| | `gpt-image-1.5` |
-| | `gpt-image-1` |
-| **Grok family** | `grok-imagine-image` |
-| | `grok-imagine-image-quality` |
-| **Custom** | Custom model IDs are supported |
+- **Multi-model access:** Configure image, video, and text models independently across Google, OpenAI, xAI, and New API.
+- **Capability-aware controls:** Show resolution, references, duration, aspect ratio, and advanced options based on each model's limits.
+- **Unified image and video creation:** Generate images, edit references, create GIFs and videos, and work on an infinite canvas.
+- **Production-friendly deployment:** Configure branding, defaults, concurrency, and rate limits through environment variables without overwriting existing user settings.
+- **Fast setup from links:** Prefill image, video, or text models from a URL, then save only after user confirmation.
+- **Reliable, traceable jobs:** Persistent queues, live WebSocket updates, polling fallback, failure diagnostics, and local backup are built in.
 
-### Highlights
+## Supported Image and Video Models
 
-- **Provider-neutral models:** Image and text models are configured independently, each with its own API key, base URL, protocol, and capability limits.
-- **Capability-aware controls:** Reference-image limits, output resolution, temperature, transparent backgrounds, quality, style, and output formats appear only when the selected model supports them.
-- **Deployment-ready defaults:** Configure the first image model, product name, logo, icon, queue concurrency, and rate limits through environment variables without overwriting existing users' local models.
-- **Model setup from a link:** Providers and team portals can prefill a model's protocol, model ID, base URL, and capabilities through a URL. Settings open automatically, but the user must confirm before anything is saved.
-- **Reliable long-running jobs:** OpenAI Images-compatible endpoints can use streaming image requests. Public base URLs can be rewritten to Docker-internal addresses to avoid reverse-proxy and Cloudflare timeouts.
-- **Actionable failures:** Upstream errors are clearly marked while preserving the original response body. A 504 response explicitly asks the user to retry.
-- **Local-first workspace:** Browser-side configuration, job history, and assets can be backed up and restored.
-
+| Type | Provider / protocol | Model ID / description |
+| :--- | :--- | :--- |
+| **Image** | Banana family | `gemini-3-pro-image`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`... |
+| **Image** | GPT family | `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`... |
+| **Image** | Grok family | `grok-imagine-image`, `grok-imagine-image-quality`... |
+| **Image** | Custom | Custom model IDs are supported |
+| **Video** | New API | Generic video protocol with custom model IDs |
+| **Video** | OpenAI Videos (Sora) | `seedance-2.0-431-720p`、`seedance-2.0-1080p`... |
+| **Video** | xAI Videos | `grok-imagine-video`, `grok-imagine-video-1.5`... |
 
 ## Sponsor
 

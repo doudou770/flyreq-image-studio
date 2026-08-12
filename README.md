@@ -4,7 +4,7 @@
 
 <div align="center">
 
-**自托管的 AI 图像生成工作台 · 多模型协议 · 智能工作流 · 实时任务 · PWA**
+**自托管的 AI 生图工作台 · 视频工作台 · 多模型协议 · 无限画布 · 素材库 · PWA**
 
 [![Version](https://img.shields.io/badge/version-v1.5.1-blue.svg)](https://github.com/doudou770/flyreq-image-studio)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
@@ -18,32 +18,28 @@
 
 ## 📖 简介
 
-FlyReq Image Studio（简称 FlyReq Image）是一个面向个人/团队的 AI 图像生成工作台。前端使用 Next.js 16 + React 19 静态导出（PWA），后端是轻量 Node.js 服务（`server.js` + SQLite + WebSocket），统一调度任务并代理图像生成 API。
-
-
-## 🧩 支持的图片模型
-
-| 厂商/系列 | 模型 ID |
-| :--- | :--- |
-| **Banana 系列** | `gemini-3-pro-image` |
-| | `gemini-3.1-flash-image` |
-| | `gemini-3.1-flash-lite-image` |
-| **GPT 全系列** | `gpt-image-2` |
-| | `gpt-image-1.5` |
-| | `gpt-image-1` |
-| **Grok 系列** | `grok-imagine-image` |
-| | `grok-imagine-image-quality` |
-| **自定义** | 支持自定义模型 ID |
+FlyReq Image Studio（简称 FlyReq Image）是一个面向个人与团队的 AI 图片和视频创作工作台。前端使用 Next.js 16 + React 19 静态导出（PWA），后端是轻量 Node.js 服务（`server.js` + SQLite + WebSocket），统一调度任务并代理图片与视频生成 API。
 
 **核心亮点：**
-- **模型不绑定平台**：图片模型与文本模型分别配置，每个模型独立保存 API Key、Base URL、协议和能力边界
-- **模型能力按需呈现**：根据内置预设或自定义能力，自动显示参考图数量、分辨率、temperature、透明背景、质量、风格和输出格式
-- **面向生产部署**：支持部署级首次图片模型、平台名称/Logo/Icon、任务并发和限流配置；已有用户的本地模型配置不会被覆盖
-- **外部链接一键预填模型**：模型供应商或团队门户可通过 URL 带入图片、文本或视频模型配置；页面自动打开设置，用户确认后才保存
-- **长任务稳定性**：OpenAI Images 兼容接口可启用流式图片请求；支持将公网 Base URL 定向到 Docker 内网，避免反向代理和 Cloudflare 长连接超时
-- **可排查的失败信息**：明确区分上游服务错误并保留原始响应；遇到 504 会提示再次重试
-- **本地优先体验**：模型与工作区配置保存于浏览器 localStorage，历史任务、图片素材与配置可一键备份和恢复
 
+- **多模型接入**：图片、视频、文本模型独立配置，兼容 Google、OpenAI、xAI 和 New API
+- **能力自适应**：按模型能力显示分辨率、参考素材、时长、画幅和高级参数
+- **图像视频一体化**：支持文生图、图生图、GIF、视频生成和无限画布创作
+- **生产部署友好**：支持环境变量配置品牌、默认模型、并发和限流，不覆盖已有用户配置
+- **外链快速配置**：通过 URL 预填图片、视频或文本模型，确认后再保存
+- **任务稳定可追踪**：队列持久化、WebSocket 实时同步、断线轮询、失败诊断和本地备份一应俱全
+
+## 🧩 支持的图片与视频模型
+
+| 类型 | 厂商/协议 | 模型 ID / 说明 |
+| :--- | :--- | :--- |
+| **图片** | Banana 系列 | `gemini-3-pro-image`、`gemini-3.1-flash-image`、`gemini-3.1-flash-lite-image`... |
+| **图片** | GPT 系列 | `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`... |
+| **图片** | Grok 系列 | `grok-imagine-image`、`grok-imagine-image-quality` ...|
+| **图片** | 自定义 | 支持自定义模型 ID |
+| **视频** | New API | 通用视频协议，支持自定义模型 ID |
+| **视频** | OpenAI Videos (Sora) | `seedance-2.0-431-720p`、`seedance-2.0-1080p` ...|
+| **视频** | xAI Videos | `grok-imagine-video`、`grok-imagine-video-1.5` ...|
 
 ## 💎 赞助商
 
