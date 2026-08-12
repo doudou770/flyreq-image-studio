@@ -914,6 +914,10 @@ function saveImageToDisk(taskId, itemIndex, subIndex, imageBuffer, mimeType) {
 function ensureVideoDir() {
   try {
     if (!fs.existsSync(VIDEO_DIR)) fs.mkdirSync(VIDEO_DIR, { recursive: true });
+    // 服务重启时清理上次异常退出留下的临时文件，最终视频文件不受影响。
+    for (const name of fs.readdirSync(VIDEO_DIR)) {
+      if (/^[a-f0-9-]+\.(?:mp4|webm|mov)\.part$/i.test(name)) fs.rmSync(path.join(VIDEO_DIR, name), { force: true });
+    }
     console.log(`[video-storage] 视频存储目录: ${VIDEO_DIR}`);
     return true;
   } catch (error) {
@@ -940,8 +944,11 @@ function getVideoExtension(mimeType) {
  */
 function findTaskVideoFile(taskId) {
   if (!/^[a-f0-9-]+$/i.test(taskId) || !fs.existsSync(VIDEO_DIR)) return null;
-  const name = fs.readdirSync(VIDEO_DIR).find(item => item.startsWith(`${taskId}.`));
-  return name ? path.join(VIDEO_DIR, name) : null;
+  for (const ext of ['mp4', 'webm', 'mov']) {
+    const candidate = path.join(VIDEO_DIR, `${taskId}.${ext}`);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 /**
@@ -2627,12 +2634,15 @@ async function cacheVideoResult(taskId, remoteUrl, apiKey, authenticatedOrigin, 
   logVideoUpstreamResponse('download', resultUrl, response, undefined, context, logOptions);
   const ext = getVideoExtension(response.headers.get('content-type'));
   const filePath = path.join(VIDEO_DIR, `${taskId}.${ext}`);
+  const temporaryPath = `${filePath}.part`;
   try {
-    await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(filePath));
+    await fs.promises.rm(temporaryPath, { force: true });
+    await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(temporaryPath, { flags: 'wx' }));
+    await fs.promises.rename(temporaryPath, filePath);
     return `/api/flyreq/videos/${taskId}`;
   } catch (error) {
     // 下载失败或任务取消时删除未写完的文件，避免长期占用视频目录空间。
-    try { await fs.promises.rm(filePath, { force: true }); } catch { /* 文件可能尚未创建或已被并发清理。 */ }
+    try { await fs.promises.rm(temporaryPath, { force: true }); } catch { /* 临时文件可能尚未创建或已被并发清理。 */ }
     throw error;
   }
 }

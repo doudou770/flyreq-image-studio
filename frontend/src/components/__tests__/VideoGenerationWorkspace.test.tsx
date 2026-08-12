@@ -5,16 +5,20 @@ import { VideoGenerationWorkspace } from '@/components/VideoGenerationWorkspace'
 import { ImageGenerationWorkbench } from '@/components/ImageGenerationWorkbench';
 import { loadRegistry, saveRegistry } from '@/lib/flyreq-models';
 import { setPromptOptimizeEnabled } from '@/lib/settings-storage';
-import { cacheVideoReferenceFiles, restoreVideoBlobUrl, restoreVideoReferenceFiles } from '@/lib/video-job-store';
+import { cacheVideoBlob, cacheVideoReferenceFiles, deleteVideoBlob, fetchVideoBlob, restoreVideoBlobUrl, restoreVideoReferenceFiles, storeVideoBlob } from '@/lib/video-job-store';
 import { applyVideoProtocolConfig, getVideoProtocolConfig } from '@/lib/video-config';
 
 vi.mock('@/lib/video-job-store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/video-job-store')>();
   return {
     ...actual,
+    cacheVideoBlob: vi.fn().mockResolvedValue('blob:repaired-video'),
     cacheVideoReferenceFiles: vi.fn().mockResolvedValue(undefined),
+    deleteVideoBlob: vi.fn().mockResolvedValue(undefined),
+    fetchVideoBlob: vi.fn().mockResolvedValue(new Blob(['video'], { type: 'video/mp4' })),
     restoreVideoBlobUrl: vi.fn(actual.restoreVideoBlobUrl),
     restoreVideoReferenceFiles: vi.fn().mockResolvedValue({ images: [], videos: [], audios: [] }),
+    storeVideoBlob: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -38,9 +42,17 @@ describe('VideoGenerationWorkspace', () => {
     registry.defaults.promptOptimize = '';
     saveRegistry(registry);
     vi.mocked(cacheVideoReferenceFiles).mockClear();
+    vi.mocked(cacheVideoBlob).mockReset();
+    vi.mocked(cacheVideoBlob).mockResolvedValue('blob:repaired-video');
+    vi.mocked(deleteVideoBlob).mockReset();
+    vi.mocked(deleteVideoBlob).mockResolvedValue(undefined);
+    vi.mocked(fetchVideoBlob).mockReset();
+    vi.mocked(fetchVideoBlob).mockResolvedValue(new Blob(['video'], { type: 'video/mp4' }));
     vi.mocked(restoreVideoBlobUrl).mockReset();
     vi.mocked(restoreVideoReferenceFiles).mockReset();
     vi.mocked(restoreVideoReferenceFiles).mockResolvedValue({ images: [], videos: [], audios: [] });
+    vi.mocked(storeVideoBlob).mockReset();
+    vi.mocked(storeVideoBlob).mockResolvedValue(undefined);
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:reference-image') });
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
   });
@@ -65,6 +77,33 @@ describe('VideoGenerationWorkspace', () => {
     expect(screen.getByLabelText('Submission shortcut')).toBeInTheDocument();
     expect(screen.getByTitle('Configure the default text model first')).toBeDisabled();
     expect(screen.getByTitle('Generate video')).toBeDisabled();
+  });
+
+  it('为移动浏览器播放器启用内联播放', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'mobile-video-job',
+      status: 'completed',
+      prompt: 'Mobile playback',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      videoUrl: '/api/flyreq/videos/mobile-video-job',
+      cached: false,
+    }]));
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Download video' })).toBeInTheDocument();
+    expect(document.querySelector('video')).toHaveProperty('playsInline', true);
   });
 
   it('粘贴媒体文件时将其加入视频参考素材', async () => {
@@ -334,7 +373,7 @@ describe('VideoGenerationWorkspace', () => {
     expect(submitButton).toBeDisabled();
   });
 
-  it('marks a missing cached video as failed without retrying restoration', async () => {
+  it('本地视频缓存缺失时回退到服务端文件并保留完成状态', async () => {
     localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
       id: 'cached-missing',
       serverTaskId: 'server-cached-missing',
@@ -358,8 +397,299 @@ describe('VideoGenerationWorkspace', () => {
       </LanguageProvider>,
     );
 
-    expect(await screen.findByText('The locally cached video is missing. Retry the task to generate it again.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Download video' })).toBeInTheDocument();
+    expect(screen.getByText('server-cached-missing')).toBeInTheDocument();
+    expect(screen.queryByText('The locally cached video is missing. Retry the task to generate it again.')).not.toBeInTheDocument();
     await waitFor(() => expect(restoreVideoBlobUrl).toHaveBeenCalledOnce());
+  });
+
+  it('本地视频缓存恢复完成前不提前请求服务端播放器或开放下载', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'cached-restoring',
+      serverTaskId: 'server-cached-restoring',
+      status: 'completed',
+      prompt: 'Restoring cached result',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      cached: true,
+    }]));
+    let resolveRestore: ((value: string | undefined) => void) | undefined;
+    vi.mocked(restoreVideoBlobUrl).mockReturnValue(new Promise(resolve => { resolveRestore = resolve; }));
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => expect(restoreVideoBlobUrl).toHaveBeenCalledOnce());
+    expect(screen.getByText('Caching video locally…')).toBeInTheDocument();
+    expect(document.querySelector('video')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Download video' })).not.toBeInTheDocument();
+
+    await act(async () => { resolveRestore?.(undefined); });
+    expect(await screen.findByRole('button', { name: 'Download video' })).toBeInTheDocument();
+  });
+
+  it('视频播放失败时清理本地缓存并自动切换到服务端文件', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'playback-error-job',
+      serverTaskId: 'server-playback-error',
+      status: 'completed',
+      prompt: 'Playback recovery',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      videoUrl: 'blob:broken-video',
+      videoSourceUrl: '/api/flyreq/videos/server-playback-error',
+      cached: true,
+    }]));
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    const video = document.querySelector('video');
+    expect(video).not.toBeNull();
+    fireEvent.error(video!);
+
+    expect(await screen.findByText('Reloading the video…')).toBeInTheDocument();
+    expect(document.querySelector('video')?.getAttribute('src')).toContain('/api/flyreq/videos/server-playback-error?video_retry=');
+    expect(deleteVideoBlob).toHaveBeenCalledWith('playback-error-job');
+
+    fireEvent.error(document.querySelector('video')!);
+    expect(await screen.findByText('The video could not be played. Reload it or download it again.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reload video' })).toBeInTheDocument();
+  });
+
+  it('没有服务端源地址的旧缓存播放失败后不再复用已撤销 Blob', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'legacy-local-only-video',
+      status: 'completed',
+      prompt: 'Legacy local-only video',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      cached: true,
+    }]));
+    vi.mocked(restoreVideoBlobUrl).mockResolvedValue('blob:legacy-local-only');
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => expect(document.querySelector('video')?.getAttribute('src')).toBe('blob:legacy-local-only'));
+    fireEvent.error(document.querySelector('video')!);
+
+    await waitFor(() => expect(document.querySelector('video')).toBeNull());
+    expect(screen.queryByRole('button', { name: 'Download video' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reload video' })).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:legacy-local-only');
+  });
+
+  it('下载完整视频后更新本地缓存并替换播放器资源', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'download-repair-job',
+      serverTaskId: 'server-download-repair',
+      status: 'completed',
+      prompt: 'Download recovery',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      videoUrl: '/api/flyreq/videos/server-download-repair',
+      videoSourceUrl: '/api/flyreq/videos/server-download-repair',
+      cached: false,
+    }]));
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    vi.mocked(URL.createObjectURL).mockReturnValue('blob:repaired-video');
+    fireEvent.click(screen.getByRole('button', { name: 'Download video' }));
+
+    await waitFor(() => expect(fetchVideoBlob).toHaveBeenCalledWith(
+      expect.stringContaining('/api/flyreq/videos/server-download-repair?video_retry='),
+      expect.any(AbortSignal),
+    ));
+    expect(storeVideoBlob).toHaveBeenCalledWith('download-repair-job', expect.any(Blob));
+    await waitFor(() => expect(document.querySelector('video')?.getAttribute('src')).toBe('blob:repaired-video'));
+    expect(anchorClick).toHaveBeenCalledOnce();
+  });
+
+  it('本地缓存写入失败时仍完成下载并保持播放器可用', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'download-without-cache-job',
+      serverTaskId: 'server-download-without-cache',
+      status: 'completed',
+      prompt: 'Download without local cache',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      videoSourceUrl: '/api/flyreq/videos/server-download-without-cache',
+      cached: false,
+    }]));
+    vi.mocked(URL.createObjectURL).mockReturnValue('blob:download-without-cache');
+    vi.mocked(storeVideoBlob).mockRejectedValue(new DOMException('quota exceeded', 'QuotaExceededError'));
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download video' }));
+
+    await waitFor(() => expect(anchorClick).toHaveBeenCalledOnce());
+    expect(document.querySelector('video')?.getAttribute('src')).toBe('blob:download-without-cache');
+    expect(screen.getByRole('button', { name: 'Download video' })).toBeEnabled();
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith('保存视频缓存失败', expect.any(DOMException)));
+  });
+
+  it('下载后的播放器立即失败时不把失效 Blob 标记为已缓存', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'invalid-downloaded-blob-job',
+      serverTaskId: 'server-invalid-downloaded-blob',
+      status: 'completed',
+      prompt: 'Invalid downloaded blob',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      videoSourceUrl: '/api/flyreq/videos/server-invalid-downloaded-blob',
+      cached: false,
+    }]));
+    let resolveStore: (() => void) | undefined;
+    vi.mocked(storeVideoBlob).mockReturnValue(new Promise(resolve => { resolveStore = resolve; }));
+    vi.mocked(URL.createObjectURL).mockReturnValue('blob:invalid-downloaded-video');
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download video' }));
+    await waitFor(() => expect(document.querySelector('video')?.getAttribute('src')).toBe('blob:invalid-downloaded-video'));
+    fireEvent.error(document.querySelector('video')!);
+    expect(await screen.findByText('Reloading the video…')).toBeInTheDocument();
+
+    await act(async () => { resolveStore?.(); });
+    await waitFor(() => expect(deleteVideoBlob).toHaveBeenCalledWith('invalid-downloaded-blob-job'));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('flyreq-video-jobs') || '[]')[0]?.cached).toBe(false));
+  });
+
+  it('已有本地缓存时直接下载当前 Blob，不依赖可能过期的服务端地址', () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'cached-download-job',
+      serverTaskId: 'expired-server-download',
+      status: 'completed',
+      prompt: 'Cached download',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      videoSourceUrl: '/api/flyreq/videos/expired-server-download',
+      cached: true,
+    }]));
+    vi.mocked(restoreVideoBlobUrl).mockResolvedValue('blob:cached-download');
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    return waitFor(() => screen.getByRole('button', { name: 'Download video' })).then(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Download video' }));
+      expect(anchorClick).toHaveBeenCalledOnce();
+      expect(fetchVideoBlob).not.toHaveBeenCalled();
+    });
+  });
+
+  it('工作台卸载时取消未完成下载且不再创建播放器对象地址', async () => {
+    localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
+      id: 'download-unmounted-job',
+      serverTaskId: 'server-download-unmounted',
+      status: 'completed',
+      prompt: 'Unmount while downloading',
+      modelId: 'video-test',
+      resolution: 720,
+      videoSize: '1280x720',
+      seconds: 6,
+      referenceVideos: [],
+      referenceAudios: [],
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      videoSourceUrl: '/api/flyreq/videos/server-download-unmounted',
+      cached: false,
+    }]));
+    let resolveFetch: ((value: Blob) => void) | undefined;
+    vi.mocked(fetchVideoBlob).mockReturnValue(new Promise(resolve => { resolveFetch = resolve; }));
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    vi.mocked(URL.createObjectURL).mockClear();
+
+    const rendered = render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download video' }));
+    await waitFor(() => expect(fetchVideoBlob).toHaveBeenCalledOnce());
+    const signal = vi.mocked(fetchVideoBlob).mock.calls[0][1];
+    rendered.unmount();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => { resolveFetch?.(new Blob(['video'], { type: 'video/mp4' })); });
+
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(storeVideoBlob).not.toHaveBeenCalled();
+    expect(anchorClick).not.toHaveBeenCalled();
   });
 
   it('在视频任务卡片展示服务端任务 ID、模型名称、模型 ID、清晰度和总耗时', () => {

@@ -21,7 +21,7 @@ import {
   isValidVideoSize,
 } from '@/lib/video-config';
 import { composeEffectiveVideoPrompt } from '@/lib/video-prompt-variants';
-import { saveVideoJobs } from '@/lib/video-job-store';
+import { saveVideoJobs, type StoredVideoJob } from '@/lib/video-job-store';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const serverSource = fs.readFileSync(path.resolve(testDir, '../../../../backend/server.js'), 'utf8');
@@ -58,6 +58,15 @@ describe('视频模型注册表与工作台配置', () => {
 
     expect(() => saveVideoJobs([])).not.toThrow();
     expect(errorLogger).toHaveBeenCalledWith('保存视频任务历史到 localStorage 失败', storageError);
+  });
+
+  it('不会把页面级视频对象 URL 写入任务历史', () => {
+    saveVideoJobs([{ id: 'blob-video-job', videoUrl: 'blob:temporary-video', cached: false } as unknown as StoredVideoJob]);
+
+    expect(JSON.parse(localStorage.getItem('flyreq-video-jobs') || '[]')).toEqual([{
+      id: 'blob-video-job',
+      cached: false,
+    }]);
   });
 
   it('把注册表 v1 的 openai 视频模型迁移为隐藏的旧兼容协议', () => {
@@ -232,6 +241,15 @@ describe('后端视频任务契约', () => {
     expect(serverSource).toContain('const suffixLength = Number(match[2])');
     expect(serverSource).toContain('start = Math.max(0, stat.size - suffixLength)');
     expect(serverSource).toContain('start === undefined || end === undefined');
+  });
+
+  it('视频先写入临时文件并在完整下载后原子改名', () => {
+    expect(serverSource).toContain('const temporaryPath = `${filePath}.part`');
+    expect(serverSource).toContain("fs.createWriteStream(temporaryPath, { flags: 'wx' })");
+    expect(serverSource).toContain('await fs.promises.rename(temporaryPath, filePath)');
+    expect(serverSource).toContain('/^[a-f0-9-]+\\.(?:mp4|webm|mov)\\.part$/i.test(name)');
+    expect(serverSource).toContain("for (const ext of ['mp4', 'webm', 'mov'])");
+    expect(serverSource).not.toContain('await fs.promises.rm(filePath, { force: true })');
   });
 
   it('记录视频上游请求与响应并提取结构化错误消息', () => {

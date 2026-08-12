@@ -51,6 +51,8 @@ export interface StoredVideoJob {
   durationMs?: number;
   durationUpdatedAt?: string;
   videoUrl?: string;
+  /** 服务端原始视频地址，用于缓存失效、播放失败和下载修复时重新获取完整文件。 */
+  videoSourceUrl?: string;
   cached?: boolean;
   error?: string;
 }
@@ -59,6 +61,7 @@ const VIDEO_DB_CONTRACT = INDEXED_DB.videoResults;
 const VIDEO_JOBS_KEY = LOCAL_STORAGE_KEYS.videoJobs;
 const VIDEO_DB_NAME = VIDEO_DB_CONTRACT.name;
 const VIDEO_STORE_NAME = VIDEO_DB_CONTRACT.stores[0].name;
+const VIDEO_CACHE_RETRY_DELAYS_MS = [0, 1000, 3000];
 
 /**
  * 读取浏览器本地视频任务历史。
@@ -82,7 +85,11 @@ export function loadVideoJobs(): StoredVideoJob[] {
 export function saveVideoJobs(jobs: StoredVideoJob[]): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(VIDEO_JOBS_KEY, JSON.stringify(jobs.map(job => ({ ...job, videoUrl: job.cached ? undefined : job.videoUrl }))));
+    localStorage.setItem(VIDEO_JOBS_KEY, JSON.stringify(jobs.map(job => ({
+      ...job,
+      // 对象 URL 只在当前页面有效，缓存未完成时也不能写入历史记录。
+      videoUrl: job.cached || job.videoUrl?.startsWith('blob:') ? undefined : job.videoUrl,
+    }))));
   } catch (error) {
     // 持久化失败时保留当前内存任务，避免 React effect 中的异常导致工作台崩溃。
     console.error('保存视频任务历史到 localStorage 失败', error);
@@ -232,15 +239,45 @@ export async function deleteVideoReferenceFiles(
 }
 
 /**
- * 下载并持久化完成视频。
- * @param jobId 本地任务标识。
- * @param url 服务端视频地址。
- * @returns 可立即播放的对象 URL。
+ * 下载并校验视频响应，防止网络中断产生的半截 Blob 进入本地缓存。
+ * @param url 视频服务端地址。
+ * @param signal 可选的请求取消信号，用于任务删除或工作台卸载时终止传输。
+ * @returns 已完整读取且类型有效的视频 Blob。
  */
-export async function cacheVideoBlob(jobId: string, url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('视频缓存下载失败');
-  const blob = await response.blob();
+export async function fetchVideoBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+  let lastError: unknown = new Error('视频缓存下载失败');
+  for (let attempt = 0; attempt < VIDEO_CACHE_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('视频下载已取消', 'AbortError');
+    const delayMs = VIDEO_CACHE_RETRY_DELAYS_MS[attempt];
+    if (delayMs > 0) await new Promise(resolve => window.setTimeout(resolve, delayMs));
+    try {
+      const response = await fetch(url, { cache: 'no-store', signal });
+      if (!response.ok) throw new Error(`视频下载失败（HTTP ${response.status}）`);
+      const blob = await response.blob();
+      const contentLength = Number(response.headers?.get('content-length') || 0);
+      const contentType = String(response.headers?.get('content-type') || blob.type || '').toLowerCase();
+      if (blob.size <= 0 || (contentLength > 0 && blob.size !== contentLength)) {
+        throw new Error('视频响应不完整');
+      }
+      if (contentType && !contentType.startsWith('video/') && contentType !== 'application/octet-stream') {
+        throw new Error('视频响应类型无效');
+      }
+      return blob;
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : error;
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('视频缓存下载失败');
+}
+
+/**
+ * 将已校验完整的视频 Blob 写入 IndexedDB。
+ * @param jobId 本地任务标识。
+ * @param blob 已通过完整性校验的视频 Blob。
+ * @returns 持久化事务完成后兑现的 Promise。
+ */
+export async function storeVideoBlob(jobId: string, blob: Blob): Promise<void> {
   const db = await openVideoDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -248,11 +285,24 @@ export async function cacheVideoBlob(jobId: string, url: string): Promise<string
       tx.objectStore(VIDEO_STORE_NAME).put(blob, jobId);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
     });
   } finally {
     // 无论事务成功或失败都关闭连接，避免后续完整备份恢复被当前页面阻塞。
     db.close();
   }
+}
+
+/**
+ * 下载并持久化完成视频。
+ * @param jobId 本地任务标识。
+ * @param url 服务端视频地址。
+ * @param signal 可选的请求取消信号。
+ * @returns 可立即播放的对象 URL。
+ */
+export async function cacheVideoBlob(jobId: string, url: string, signal?: AbortSignal): Promise<string> {
+  const blob = await fetchVideoBlob(url, signal);
+  await storeVideoBlob(jobId, blob);
   return URL.createObjectURL(blob);
 }
 
