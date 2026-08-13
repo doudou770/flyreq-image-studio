@@ -45,6 +45,24 @@ describe('backend GPT Image advanced params forwarding', () => {
     expect(serverSource).toContain('return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {');
   });
 
+  it('normalizes legacy lowercase size tiers before persisting and forwarding requests', () => {
+    expect(serverSource).toContain("const IMAGE_OUTPUT_SIZES = new Set(['auto', '512', '1K', '2K', '4K'])");
+    expect(serverSource).toContain('body.outputSize = normalizeImageOutputSize(body.outputSize)');
+    expect(serverSource).toContain("raw.toLowerCase() === 'auto' ? 'auto' : raw.toUpperCase()");
+  });
+
+  it('records the exact outbound size and includes it in upstream failures', () => {
+    expect(serverSource).toContain("logImageRequestUrl('openai', request.model, url, { size: resolvedSize || 'auto' })");
+    expect(serverSource).toContain('FlyReq 实际发送尺寸：${resolvedSize}');
+  });
+
+  it('forwards the selected aspect ratio to OpenAI-compatible image upstreams', () => {
+    expect(serverSource).toContain('function getExplicitImageAspectRatio(value)');
+    expect(serverSource).toContain("formData.append('aspect_ratio', aspectRatio)");
+    expect(serverSource).toContain('...(aspectRatio ? { aspect_ratio: aspectRatio } : {})');
+    expect(serverSource).toContain("aspectRatio !== 'auto' ? aspectRatio : undefined");
+  });
+
   it('supports optional streaming image requests without retrying non-stream requests', () => {
     expect(serverSource).toContain("formData.append('stream', 'true')");
     expect(serverSource).toContain('...(stream ? { stream: true } : {})');

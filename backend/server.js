@@ -20,6 +20,12 @@ const {
   logVideoUpstreamResponse,
   logVideoTaskSummary,
 } = require('./video-upstream-logger');
+const {
+  getImageUpstreamLogMaxChars,
+  isImageUpstreamLogEnabled,
+  logImageUpstreamRequest,
+  logImageUpstreamResponse,
+} = require('./image-upstream-logger');
 
 const ENV_FILE_PATHS = [...new Set([
   path.join(__dirname, '.env'),
@@ -418,6 +424,7 @@ const GPT_IMAGE_QUALITIES = new Set(['auto', 'high', 'medium', 'low']);
 const GPT_IMAGE_STYLES = new Set(['auto', 'vivid', 'natural']);
 const GPT_IMAGE_BACKGROUNDS = new Set(['auto', 'transparent', 'opaque']);
 const GPT_IMAGE_OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp']);
+const IMAGE_OUTPUT_SIZES = new Set(['auto', '512', '1K', '2K', '4K']);
 const IMAGE_API_FLAVORS = new Set(['xai-imagine']);
 const XAI_IMAGINE_OUTPUT_SIZES = new Set(['1K', '2K']);
 const XAI_IMAGINE_ASPECT_RATIOS = new Set([
@@ -1678,6 +1685,19 @@ function getVideoUpstreamLogOptions() {
   };
 }
 
+/**
+ * 从运行时环境变量读取图片上游日志配置。
+ * @returns {{ enabled: boolean, maxChars: number, logDir: string|undefined }} 日志开关、单条响应正文最大字符数和落盘目录。
+ */
+function getImageUpstreamLogOptions() {
+  const env = getRuntimeEnv();
+  return {
+    enabled: isImageUpstreamLogEnabled(env.FLYREQ_IMAGE_UPSTREAM_LOG_ENABLED),
+    maxChars: getImageUpstreamLogMaxChars(env.FLYREQ_IMAGE_UPSTREAM_LOG_MAX_CHARS),
+    logDir: env.FLYREQ_IMAGE_UPSTREAM_LOG_DIR,
+  };
+}
+
 function validateEnumValue(value, validValues, fieldName) {
   if (value === undefined || value === null || value === '') return undefined;
   if (!validValues.has(value)) {
@@ -1700,6 +1720,18 @@ function normalizeGptImageAdvancedParams(params = {}) {
   };
 }
 
+/**
+ * 将客户端图片档位规范成服务端唯一格式，兼容旧缓存中的小写 k。
+ * @param {unknown} value 客户端提交的图片档位。
+ * @returns {'auto' | '512' | '1K' | '2K' | '4K'} 规范化后的图片档位。
+ */
+function normalizeImageOutputSize(value) {
+  const raw = String(value || '').trim();
+  const normalized = raw.toLowerCase() === 'auto' ? 'auto' : raw.toUpperCase();
+  if (!IMAGE_OUTPUT_SIZES.has(normalized)) throw new Error('图片分辨率档位无效');
+  return normalized;
+}
+
 function validateCreatePayload(body) {
   if (!body || typeof body !== 'object') throw new Error('请求体不能为空');
   if (typeof body.apiKey !== 'string' || body.apiKey.trim().length === 0) throw new Error('缺少 API 密钥');
@@ -1711,6 +1743,10 @@ function validateCreatePayload(body) {
   if (!Number.isInteger(body.parallelCount) || body.parallelCount < 1 || body.parallelCount > MAX_PARALLEL_COUNT) throw new Error('并发数量无效');
   if (body.imageApiFlavor !== undefined && !IMAGE_API_FLAVORS.has(body.imageApiFlavor)) throw new Error('图片 API 类型无效');
   if (body.temperature !== undefined && (!Number.isFinite(body.temperature) || body.temperature < 0 || body.temperature > 2)) throw new Error('温度参数无效');
+
+  body.outputSize = normalizeImageOutputSize(body.outputSize);
+  body.aspectRatio = String(body.aspectRatio || '').trim();
+  if (!body.aspectRatio) throw new Error('图片比例不能为空');
 
   if (!Array.isArray(body.images)) body.images = [];
   if (!Array.isArray(body.promptVariants)) {
@@ -1989,10 +2025,21 @@ function getGptImageRequestAdvancedParams(request) {
   return normalizeGptImageAdvancedParams(request);
 }
 
+/**
+ * 获取上游私有协议使用的显式图片比例。
+ * @param {unknown} value FlyReq 请求中的比例值。
+ * @returns {string | undefined} 非自动比例；自动比例不发送该扩展字段。
+ */
+function getExplicitImageAspectRatio(value) {
+  const aspectRatio = String(value || '').trim();
+  return aspectRatio && aspectRatio !== 'auto' ? aspectRatio : undefined;
+}
+
 function createGptImageRequestInit(apiKey, request, resolvedSize, options = {}) {
   const prompt = request.prompt;
   const advancedParams = getGptImageRequestAdvancedParams(request);
   const stream = Boolean(options.stream);
+  const aspectRatio = getExplicitImageAspectRatio(request.aspectRatio);
 
   if (request.mode === 'image-to-image') {
     const formData = new FormData();
@@ -2012,6 +2059,9 @@ function createGptImageRequestInit(apiKey, request, resolvedSize, options = {}) 
     }
     if (resolvedSize) {
       formData.append('size', resolvedSize);
+    }
+    if (aspectRatio) {
+      formData.append('aspect_ratio', aspectRatio);
     }
 
     request.images.forEach((img, index) => {
@@ -2036,6 +2086,7 @@ function createGptImageRequestInit(apiKey, request, resolvedSize, options = {}) 
     model: request.model,
     ...(stream ? { stream: true } : {}),
     ...(resolvedSize ? { size: resolvedSize } : {}),
+    ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
     ...(advancedParams ? {
       quality: advancedParams.quality,
       background: advancedParams.background,
@@ -2239,17 +2290,36 @@ async function requestGptImage(apiKey, request, resolvedSize, options = {}) {
     : '/v1/images/generations';
   const stream = Boolean(options.stream);
   const url = appendProtocolApiPath('openai', baseUrl, endpoint);
-  logImageRequestUrl('openai', request.model, url);
-
-  const response = await fetchWithTimeout(
-    url,
-    createGptImageRequestInit(apiKey, request, resolvedSize, { ...options, stream })
-  );
+  const imageLogOptions = getImageUpstreamLogOptions();
+  const requestInit = createGptImageRequestInit(apiKey, request, resolvedSize, { ...options, stream });
+  const logContext = {
+    taskId: options.taskId,
+    imageIndex: options.imageIndex,
+    protocol: 'openai',
+    model: request.model,
+    mode: request.mode,
+    outputSize: request.outputSize,
+    aspectRatio: request.aspectRatio,
+    resolvedSize: resolvedSize || 'auto',
+  };
+  logImageRequestUrl('openai', request.model, url, { size: resolvedSize || 'auto' });
+  logImageUpstreamRequest('generate', url, requestInit, logContext, imageLogOptions);
+  const response = await fetchWithTimeout(url, requestInit);
+  if (imageLogOptions.enabled) {
+    const responseText = await response.clone().text();
+    logImageUpstreamResponse('generate', url, response, responseText, logContext, {
+      ...imageLogOptions,
+      isError: !response.ok,
+    });
+  }
   const usesSse = isImageEventStreamResponse(response);
   if (usesSse) notifyImageSseResponse(options);
   try {
     return { image: await parseGptImageResponse(response), usesSse };
   } catch (error) {
+    if (resolvedSize && error instanceof Error) {
+      error.message = `${error.message}（FlyReq 实际发送尺寸：${resolvedSize}）`;
+    }
     if (usesSse && error && typeof error === 'object') {
       error.usesSse = true;
     }
@@ -2261,11 +2331,31 @@ async function requestXaiImagineImage(apiKey, request, options = {}) {
   const baseUrl = options.baseUrl || 'https://api.x.ai';
   const endpoint = getXaiImagineEndpoint(request.mode);
   const url = appendProtocolApiPath('openai', baseUrl, endpoint);
+  const imageLogOptions = getImageUpstreamLogOptions();
+  const logContext = {
+    taskId: options.taskId,
+    imageIndex: options.imageIndex,
+    protocol: 'xai-imagine',
+    model: request.model,
+    mode: request.mode,
+    outputSize: request.outputSize,
+    aspectRatio: request.aspectRatio,
+  };
   logImageRequestUrl('xai-imagine', request.model, url);
 
   for (let attempt = 0; attempt <= XAI_IMAGINE_MAX_RETRIES; attempt++) {
     await waitForXaiImagineRequestSlot(apiKey);
-    const response = await fetchWithTimeout(url, createXaiImagineRequestInit(apiKey, request));
+    const requestInit = createXaiImagineRequestInit(apiKey, request);
+    const attemptContext = { ...logContext, attempt: attempt + 1 };
+    logImageUpstreamRequest('generate', url, requestInit, attemptContext, imageLogOptions);
+    const response = await fetchWithTimeout(url, requestInit);
+    if (imageLogOptions.enabled) {
+      const responseText = await response.clone().text();
+      logImageUpstreamResponse('generate', url, response, responseText, attemptContext, {
+        ...imageLogOptions,
+        isError: !response.ok,
+      });
+    }
     if (response.status !== 429 || attempt === XAI_IMAGINE_MAX_RETRIES) {
       const usesSse = isImageEventStreamResponse(response);
       if (usesSse) notifyImageSseResponse(options);
@@ -2344,17 +2434,31 @@ async function generateFlyreqImage(apiKey, request, options = {}) {
     : { baseUrl: resolveFlyreqApiBaseUrl(), originalBaseUrl: '', rewritten: false };
   const baseUrl = baseUrlDetails.baseUrl;
   if (request.imageApiFlavor === 'xai-imagine') {
-    return requestXaiImagineImage(apiKey, request, { baseUrl, onSseConfirmed: options.onSseConfirmed });
+    return requestXaiImagineImage(apiKey, request, {
+      baseUrl,
+      onSseConfirmed: options.onSseConfirmed,
+      taskId: options.taskId,
+      imageIndex: options.imageIndex,
+    });
   }
   if (request.protocol === 'openai') {
     return requestGptImage(apiKey, request, resolveGptImageRequestSize(request), {
       baseUrl,
       stream: Boolean(request.streamImages),
       onSseConfirmed: options.onSseConfirmed,
+      taskId: options.taskId,
+      imageIndex: options.imageIndex,
     });
   }
   // 默认走 Google Gemini 协议
-  return { image: await generateFlyreqGeminiImage(apiKey, request, { baseUrl }), usesSse: false };
+  return {
+    image: await generateFlyreqGeminiImage(apiKey, request, {
+      baseUrl,
+      taskId: options.taskId,
+      imageIndex: options.imageIndex,
+    }),
+    usesSse: false,
+  };
 }
 
 function extractGeminiImagePayload(data) {
@@ -2371,8 +2475,8 @@ async function generateFlyreqGeminiImage(apiKey, request, options = {}) {
     ...request.images.map(img => ({ inlineData: { data: img.data, mimeType: img.mimeType } })),
   ];
   const url = appendProtocolApiPath('google', baseUrl, `/v1beta/models/${encodeURIComponent(request.model)}:generateContent`);
-  logImageRequestUrl('google', request.model, url);
-  const response = await fetchWithTimeout(url, {
+  const imageLogOptions = getImageUpstreamLogOptions();
+  const requestInit = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -2386,7 +2490,26 @@ async function generateFlyreqGeminiImage(apiKey, request, options = {}) {
         imageConfig: { imageSize: request.outputSize, aspectRatio: request.aspectRatio },
       },
     }),
-  });
+  };
+  const logContext = {
+    taskId: options.taskId,
+    imageIndex: options.imageIndex,
+    protocol: 'google',
+    model: request.model,
+    mode: request.mode,
+    outputSize: request.outputSize,
+    aspectRatio: request.aspectRatio,
+  };
+  logImageRequestUrl('google', request.model, url);
+  logImageUpstreamRequest('generate', url, requestInit, logContext, imageLogOptions);
+  const response = await fetchWithTimeout(url, requestInit);
+  if (imageLogOptions.enabled) {
+    const responseText = await response.clone().text();
+    logImageUpstreamResponse('generate', url, response, responseText, logContext, {
+      ...imageLogOptions,
+      isError: !response.ok,
+    });
+  }
 
   if (!response.ok) {
     const responseText = await response.text();
@@ -2844,10 +2967,12 @@ function recordTaskSseResponse(taskId, requestCount) {
  * @param protocol 图片生成协议或图片 API 类型。
  * @param model 实际发送给上游的模型 ID。
  * @param url 最终请求 URL，不包含 API Key 等敏感信息。
+ * @param {{ size?: string }} details 可选的安全请求参数摘要。
  * @returns 无返回值。
  */
-function logImageRequestUrl(protocol, model, url) {
-  console.info(`[image-request] 协议=${protocol} 模型=${model} 最终请求URL=${getSafeUrlLabel(url)}`);
+function logImageRequestUrl(protocol, model, url, details = {}) {
+  const size = details.size ? ` 尺寸=${details.size}` : '';
+  console.info(`[image-request] 协议=${protocol} 模型=${model}${size} 最终请求URL=${getSafeUrlLabel(url)}`);
 }
 
 async function generateSingleImage(apiKey, request, taskId, index) {
@@ -2861,6 +2986,8 @@ async function generateSingleImage(apiKey, request, taskId, index) {
       : request;
     const generated = await generateFlyreqImage(apiKey, requestForImage, {
       onSseConfirmed: () => recordTaskSseResponse(taskId, request.parallelCount),
+      taskId,
+      imageIndex: index,
     });
     usesSse = generated.usesSse;
     const image = generated.image;

@@ -241,6 +241,8 @@ https://image.flyreq.com/zh/?provider={"type":"video","protocol":"openai","model
 
 后端全部标准日志会在保留控制台输出的同时，按本地日期写入 `backend/logs/application/application-YYYY-MM-DD.log` JSONL 文件，覆盖服务启动、任务队列、图片与视频处理、清理任务和 WebSocket 等运行事件。应用日志默认开启，可通过 `FLYREQ_FILE_LOG_ENABLED=false` 关闭，或通过 `FLYREQ_LOG_DIR` 修改目录。
 
+图片工作台每次 OpenAI、xAI 或 Google 上游生成请求与响应会输出 `[image-upstream]` 结构化日志，并按本地日期写入 `backend/logs/image-upstream/image-upstream-YYYY-MM-DD.log` JSONL 文件。日志包含请求方法、URL、请求头、请求体、HTTP 状态、响应头、响应正文与模型、模式、档位、比例等上下文。API Key、认证头、Cookie、签名查询参数会自动脱敏；请求的 data URL、multipart 图片，以及响应中的 OpenAI `b64_json`、Gemini `inlineData.data` 会替换为 MIME 或字节数摘要，绝不写入原始图片数据。日志默认开启，可通过 `FLYREQ_IMAGE_UPSTREAM_LOG_ENABLED=false` 关闭；单条普通响应正文默认最多记录 65536 字符，可通过 `FLYREQ_IMAGE_UPSTREAM_LOG_MAX_CHARS` 调整，落盘目录可通过 `FLYREQ_IMAGE_UPSTREAM_LOG_DIR` 修改。
+
 视频上游每次创建、轮询和结果下载的请求与响应还会输出 `[video-upstream]` 结构化日志，并按本地日期写入 `backend/logs/video-upstream/video-upstream-YYYY-MM-DD.log` JSONL 文件。每条阶段日志都包含本地 `taskId`、模型显示名称、上游模型 ID、清晰度和当前耗时；任务完成、失败或取消时还会写入 `task-summary` 终态记录及精确的 `totalDurationMs` 总耗时。日志同时包含请求阶段、方法、URL、HTTP 状态、请求头、请求参数、响应头、响应正文和任务上下文。API Key、认证头、Cookie、签名查询参数会自动脱敏；data URL 与 multipart 媒体只记录类型、名称和字节数；`Content-Type` 为 `video/*` 的响应只记录媒体类型和字节数占位符，不会写入视频正文。日志默认开启，可通过 `FLYREQ_VIDEO_UPSTREAM_LOG_ENABLED=false` 关闭；单条普通响应正文默认最多记录 65536 字符，可通过 `FLYREQ_VIDEO_UPSTREAM_LOG_MAX_CHARS` 调整，落盘目录可通过 `FLYREQ_VIDEO_UPSTREAM_LOG_DIR` 修改。Docker Compose 默认将宿主机 `./logs` 挂载到 `/app/backend/logs`，并使用 `Asia/Shanghai` 时区分割日期。
 
 #### 字段与行为
@@ -654,6 +656,9 @@ docker push ghcr.io/doudou770/flyreq-image-studio:latest
 | `FLYREQ_VIDEO_UPSTREAM_LOG_ENABLED` | 否 | `true` | 是否记录视频上游创建、轮询和下载阶段的每次请求与响应；`false`、`0`、`no`、`off` 关闭 |
 | `FLYREQ_VIDEO_UPSTREAM_LOG_MAX_CHARS` | 否 | `65536` | 单条视频上游响应正文的最大日志字符数，范围 `1024-1048576` |
 | `FLYREQ_VIDEO_UPSTREAM_LOG_DIR` | 否 | `backend/logs/video-upstream` | 按日期分割的视频上游 JSONL 日志目录；Docker Compose 使用 `/app/backend/logs/video-upstream` |
+| `FLYREQ_IMAGE_UPSTREAM_LOG_ENABLED` | 否 | `true` | 是否记录图片上游生成阶段的每次请求与响应；`false`、`0`、`no`、`off` 关闭 |
+| `FLYREQ_IMAGE_UPSTREAM_LOG_MAX_CHARS` | 否 | `65536` | 单条图片上游响应正文的最大字符数，范围 `1024-1048576` |
+| `FLYREQ_IMAGE_UPSTREAM_LOG_DIR` | 否 | `backend/logs/image-upstream` | 按日期分割的图片上游 JSONL 日志目录；Docker Compose 使用 `/app/backend/logs/image-upstream` |
 | `FLYREQ_DEFAULT_IMAGE_MODEL_BASE_URL` | 否 | `https://flyreq.com` | 首次默认图片模型的 Base URL |
 | `FLYREQ_DEFAULT_IMAGE_MODEL_MODEL_ID` | 否 | 空 | 实际模型 ID；留空时使用预设模型 ID 映射 |
 | `FLYREQ_DEFAULT_IMAGE_MODEL_PRESET` | 否 | `gpt-image-2` | 内置图片预设 ID，决定模型能力边界 |
