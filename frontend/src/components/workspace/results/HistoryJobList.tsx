@@ -2,15 +2,17 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Loader2, X, RefreshCw } from 'lucide-react';
+import { Check, Copy, Loader2, RefreshCw, RotateCcw, Thermometer, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getBatchImageMarker, getStoredJobDisplayPrompt, type Mode, type StoredJob } from '@/lib/job-store';
 import { cn } from '@/lib/utils';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
-import { getModelDisplayName } from '@/lib/model-capabilities';
+import { getModelDisplayName, getOutputSizeLabel, getSupportsTemperature } from '@/lib/model-capabilities';
+import { getEffectiveImagePrompt } from '@/lib/prompt-variants';
 import { CompletedJobCard } from '@/components/workspace/results/CompletedJobCard';
 import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
 import { useI18n } from '@/components/LanguageProvider';
+import { dispatchImageActionToast } from '@/lib/image-actions';
 
 export type GenerationHistoryFilter = 'all' | 'text-to-image' | 'image-to-image';
 export type HistoryClearScope = GenerationHistoryFilter;
@@ -37,6 +39,85 @@ function useNow(enabled: boolean) {
   return now;
 }
 
+/**
+ * 复制任务实际发送给上游的完整提示词。
+ * @param job 需要复制提示词的图片任务。
+ * @param messages 复制成功、浏览器不支持和复制失败时的提示文本。
+ * @returns 复制成功返回 true，浏览器不支持或复制失败时返回 false。
+ */
+async function copyJobEffectivePrompt(
+  job: StoredJob,
+  messages: { success: string; unsupported: string; failed: string },
+): Promise<boolean> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error(messages.unsupported);
+    await navigator.clipboard.writeText(getEffectiveImagePrompt(job.prompt, job.promptVariants, job.effectivePrompt));
+    dispatchImageActionToast(messages.success, 'success');
+    return true;
+  } catch (error) {
+    dispatchImageActionToast(error instanceof Error ? error.message : messages.failed, 'error');
+    return false;
+  }
+}
+
+/**
+ * 展示等待或失败任务的已选生成规格，保持与完成任务的模型、档位和比例信息一致。
+ * @param props 任务数据。
+ * @param props.job 需要展示生成规格的图片任务。
+ * @returns 任务规格信息行。
+ */
+const JobGenerationMetadata = memo(function JobGenerationMetadata({ job }: { job: StoredJob }) {
+  const outputSizeLabel = job.custom_size || getOutputSizeLabel(job.output_size);
+  const supportsTemperature = getSupportsTemperature(job.model);
+
+  return (
+    <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+      <span>{getModelDisplayName(job.model)}</span>
+      <span>·</span>
+      <span>{outputSizeLabel}</span>
+      {job.aspect_ratio !== 'auto' && <><span>·</span><span>{job.aspect_ratio}</span></>}
+      {supportsTemperature && <><span>·</span><Thermometer className="w-3 h-3" /><span>{job.temperature?.toFixed(2) ?? 1}</span></>}
+    </p>
+  );
+});
+
+/**
+ * 为非完成任务提供复制实际提示词的图标按钮，并在成功后短暂显示完成状态。
+ * @param props 任务数据。
+ * @param props.job 需要复制提示词的图片任务。
+ * @returns 可复制任务实际提示词的按钮。
+ */
+const JobPromptCopyButton = memo(function JobPromptCopyButton({ job }: { job: StoredJob }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+
+  /**
+   * 复制当前任务的实际提示词并更新按钮的成功状态。
+   * @returns 无返回值；复制失败时由共享提示条展示原因。
+   */
+  const handleCopy = async (): Promise<void> => {
+    if (!await copyJobEffectivePrompt(job, {
+      success: t('task.promptCopied'),
+      unsupported: t('task.copyPromptUnsupported'),
+      failed: t('task.copyPromptFailed'),
+    })) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      onClick={() => void handleCopy()}
+      title={t('task.copyPrompt')}
+      aria-label={t('task.copyPrompt')}
+    >
+      {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+    </Button>
+  );
+});
+
 const WaitingJobCard = memo(function WaitingJobCard({
   job,
   now,
@@ -44,6 +125,7 @@ const WaitingJobCard = memo(function WaitingJobCard({
   cooldownEnd,
   onCancel,
   onCheckStatus,
+  onRetry,
 }: {
   job: StoredJob;
   now: number;
@@ -51,6 +133,7 @@ const WaitingJobCard = memo(function WaitingJobCard({
   cooldownEnd: number | undefined;
   onCancel: (jobId: string) => void;
   onCheckStatus: (job: StoredJob) => void;
+  onRetry: (job: StoredJob) => void;
 }) {
   const { t } = useI18n();
   const parallelCount = job.parallelCount || 1;
@@ -77,11 +160,13 @@ const WaitingJobCard = memo(function WaitingJobCard({
             {batchImageIndex && <span className="shrink-0 text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
             <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
             <JobSseBadge job={job} />
+            <JobPromptCopyButton job={job} />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{statusText}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {t('history.elapsed', { seconds: elapsedSeconds, model: getModelDisplayName(job.model) })}
           </p>
+          <JobGenerationMetadata job={job} />
           {requestedAtLabel && (
             <p className="mt-0.5 text-xs text-muted-foreground">{t('task.requestedAt', { time: requestedAtLabel })}</p>
           )}
@@ -99,6 +184,15 @@ const WaitingJobCard = memo(function WaitingJobCard({
               : <RefreshCw className="w-4 h-4" />}
           </Button>
         )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onRetry(job)}
+          title={t('task.retryWithPrompt')}
+          className="text-muted-foreground hover:text-primary"
+        >
+          <RotateCcw className="w-4 h-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -322,7 +416,7 @@ export function HistoryJobList({
   const renderJobCard = (job: StoredJob) => {
     const hasImage = job.status === 'completed' && (job.images || job.imageData) && loadedImages.has(job.id);
     if (isWaitingJob(job)) {
-      return <WaitingJobCard job={job} now={now} isChecking={checkingJobIds.has(job.id)} cooldownEnd={cooldowns.get(job.id)} onCancel={onCancel} onCheckStatus={onCheckStatus} />;
+      return <WaitingJobCard job={job} now={now} isChecking={checkingJobIds.has(job.id)} cooldownEnd={cooldowns.get(job.id)} onCancel={onCancel} onCheckStatus={onCheckStatus} onRetry={onRetry} />;
     }
     if (hasImage) {
       return <CompletedJobCard job={job} onClear={() => onClear(job.id)} onRetry={onRetry} onRetryDownload={onRetryDownload} />;
@@ -340,9 +434,12 @@ export function HistoryJobList({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
               {batchImageIndex && <span className="inline-flex text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
-              <p className="truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
+                <JobPromptCopyButton job={job} />
+              </div>
               <p className="max-h-20 overflow-y-auto text-sm text-destructive">{job.error || t('history.failed')}</p>
-              <p className="text-xs text-muted-foreground">{getModelDisplayName(job.model)}</p>
+              <JobGenerationMetadata job={job} />
               {(requestedAtLabel || durationLabel) && (
                 <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                   {requestedAtLabel && <span>{t('task.requestedAt', { time: requestedAtLabel })}</span>}
@@ -359,8 +456,8 @@ export function HistoryJobList({
                     : <RefreshCw className="w-4 h-4" />}
                 </Button>
               )}
-              <Button variant="ghost" size="icon-sm" onClick={() => onRetry(job)} title={t('common.retry')}>
-                <Loader2 className="w-4 h-4" />
+              <Button variant="ghost" size="icon-sm" onClick={() => onRetry(job)} title={t('task.retryWithPrompt')}>
+                <RotateCcw className="w-4 h-4" />
               </Button>
               <Button variant="ghost" size="icon-sm" onClick={() => onClear(job.id)} title={t('common.delete')}>
                 <X className="w-4 h-4" />
