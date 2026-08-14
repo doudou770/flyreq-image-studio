@@ -75,7 +75,7 @@ const JobGenerationMetadata = memo(function JobGenerationMetadata({ job }: { job
       <span>{getModelDisplayName(job.model)}</span>
       <span>·</span>
       <span>{outputSizeLabel}</span>
-      {job.aspect_ratio !== 'auto' && <><span>·</span><span>{job.aspect_ratio}</span></>}
+      {job.aspect_ratio !== 'auto' && <><span>·</span><span className="rounded border border-border bg-muted px-1.5 py-0.5 text-sm font-medium leading-none text-foreground">{job.aspect_ratio}</span></>}
       {supportsTemperature && <><span>·</span><Thermometer className="w-3 h-3" /><span>{job.temperature?.toFixed(2) ?? 1}</span></>}
     </p>
   );
@@ -149,8 +149,8 @@ const WaitingJobCard = memo(function WaitingJobCard({
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-3">
-        <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
+      <div className="flex items-start gap-3">
+        <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
           <div className="absolute inset-0 flex items-center justify-center">
             <Loader2 className="w-5 h-5 animate-spin text-primary" />
           </div>
@@ -171,37 +171,40 @@ const WaitingJobCard = memo(function WaitingJobCard({
             <p className="mt-0.5 text-xs text-muted-foreground">{t('task.requestedAt', { time: requestedAtLabel })}</p>
           )}
         </div>
-        {job.serverTaskId && (
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-border pt-2">
+          {job.serverTaskId && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onCheckStatus(job)}
+              disabled={isChecking || (cooldownEnd !== undefined && now < cooldownEnd)}
+              title={t('history.checkProgress')}
+              className="sm:size-7"
+            >
+              {isChecking
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <RefreshCw className="w-4 h-4" />}
+            </Button>
+          )}
           <Button
             variant="ghost"
-            size="icon-sm"
-            onClick={() => onCheckStatus(job)}
-            disabled={isChecking || (cooldownEnd !== undefined && now < cooldownEnd)}
-            title={t('history.checkProgress')}
+            size="icon"
+            onClick={() => onRetry(job)}
+            title={t('task.retryWithPrompt')}
+            className="text-muted-foreground hover:text-primary sm:size-7"
           >
-            {isChecking
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <RefreshCw className="w-4 h-4" />}
+            <RotateCcw className="w-4 h-4" />
           </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => onRetry(job)}
-          title={t('task.retryWithPrompt')}
-          className="text-muted-foreground hover:text-primary"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => onCancel(job.id)}
-          title={t('common.cancel')}
-          className="text-muted-foreground hover:text-destructive"
-        >
-          <X className="w-4 h-4" />
-        </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onCancel(job.id)}
+            title={t('common.cancel')}
+            className="text-muted-foreground hover:text-destructive sm:size-7"
+          >
+            <X className="w-4 h-4" />
+          </Button>
       </div>
     </div>
   );
@@ -431,7 +434,7 @@ export function HistoryJobList({
       const displayedPrompt = getStoredJobDisplayPrompt(job);
       return (
         <div className="rounded-xl border border-destructive/20 bg-card p-4">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
             <div className="min-w-0 space-y-1">
               {batchImageIndex && <span className="inline-flex text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
               <div className="flex min-w-0 items-center gap-1.5">
@@ -448,21 +451,21 @@ export function HistoryJobList({
                 </p>
               )}
             </div>
-            <div className="flex gap-1">
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-border pt-2">
               {allowCheckStatus && (
-                <Button variant="ghost" size="icon-sm" onClick={() => onCheckStatus(job)} disabled={checkingJobIds.has(job.id) || (cooldowns.get(job.id) !== undefined && now < cooldowns.get(job.id)!)} title={t('history.checkProgress')}>
+                <Button variant="ghost" size="icon" className="sm:size-7" onClick={() => onCheckStatus(job)} disabled={checkingJobIds.has(job.id) || (cooldowns.get(job.id) !== undefined && now < cooldowns.get(job.id)!)} title={t('history.checkProgress')}>
                   {checkingJobIds.has(job.id)
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <RefreshCw className="w-4 h-4" />}
                 </Button>
               )}
-              <Button variant="ghost" size="icon-sm" onClick={() => onRetry(job)} title={t('task.retryWithPrompt')}>
+              <Button variant="ghost" size="icon" className="sm:size-7" onClick={() => onRetry(job)} title={t('task.retryWithPrompt')}>
                 <RotateCcw className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="icon-sm" onClick={() => onClear(job.id)} title={t('common.delete')}>
+              <Button variant="ghost" size="icon" className="sm:size-7" onClick={() => onClear(job.id)} title={t('common.delete')}>
                 <X className="w-4 h-4" />
               </Button>
-            </div>
           </div>
         </div>
       );
