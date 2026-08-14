@@ -10,6 +10,8 @@ import type { AspectRatio, OutputSize, RefImageData, StoredJob } from '@/lib/job
 import { getEffectiveImagePrompt } from '@/lib/prompt-variants';
 
 export const MAX_PARALLEL_COUNT = 20;
+/** 生图工作台允许通过数字输入提交的最大图片数量。 */
+export const MAX_IMAGE_PARALLEL_COUNT = 50;
 export type ParallelCount = number;
 export const PARALLEL_COUNT_OPTIONS: ParallelCount[] = Array.from(
   { length: MAX_PARALLEL_COUNT },
@@ -194,7 +196,7 @@ function parseImageSize(size?: string): { width: number; height: number } | unde
   return Number.isFinite(width) && Number.isFinite(height) ? { width, height } : undefined;
 }
 
-function isImageSizeWithinLimits(width: number, height: number, maxSide?: number): boolean {
+function isImageSizeWithinLimits(width: number, height: number, maxSide?: number, requireMultiple = true): boolean {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return false;
 
   const limit = typeof maxSide === 'number' && maxSide > 0 ? maxSide : Number.POSITIVE_INFINITY;
@@ -204,8 +206,7 @@ function isImageSizeWithinLimits(width: number, height: number, maxSide?: number
 
   return (
     longSide <= limit &&
-    width % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0 &&
-    height % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0 &&
+    (!requireMultiple || (width % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0 && height % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0)) &&
     longSide / shortSide <= CUSTOM_IMAGE_SIZE_LIMITS.maxAspectRatio &&
     pixels >= CUSTOM_IMAGE_SIZE_LIMITS.minPixels &&
     pixels <= CUSTOM_IMAGE_SIZE_LIMITS.maxPixels
@@ -262,14 +263,20 @@ export function getGptImageResolution(outputSize: OutputSize, aspectRatio: Aspec
   return `${width}x${height}`;
 }
 
-export function normalizeCustomImageSize(size?: string, maxSide?: number): string | undefined {
+/** 规范化自定义像素尺寸，并按需要将宽高对齐到 16 的倍数。
+ * @param size 原始宽高字符串。
+ * @param maxSide 模型允许的最大边长。
+ * @param alignToMultiple 是否自动对齐到 16 的倍数。
+ * @returns 可提交的宽高字符串；不符合像素、比例或边长限制时返回 undefined。
+ */
+export function normalizeCustomImageSize(size?: string, maxSide?: number, alignToMultiple = true): string | undefined {
   const parsed = parseImageSize(size);
   if (!parsed) return undefined;
 
   const limit = typeof maxSide === 'number' && maxSide > 0 ? maxSide : Number.POSITIVE_INFINITY;
-  const width = Math.min(roundToMultiple(parsed.width, CUSTOM_IMAGE_SIZE_LIMITS.multiple), limit);
-  const height = Math.min(roundToMultiple(parsed.height, CUSTOM_IMAGE_SIZE_LIMITS.multiple), limit);
-  if (!isImageSizeWithinLimits(width, height, maxSide)) return undefined;
+  const width = Math.min(alignToMultiple ? roundToMultiple(parsed.width, CUSTOM_IMAGE_SIZE_LIMITS.multiple) : Math.trunc(parsed.width), limit);
+  const height = Math.min(alignToMultiple ? roundToMultiple(parsed.height, CUSTOM_IMAGE_SIZE_LIMITS.multiple) : Math.trunc(parsed.height), limit);
+  if (!isImageSizeWithinLimits(width, height, maxSide, alignToMultiple)) return undefined;
 
   return `${width}x${height}`;
 }
@@ -739,8 +746,13 @@ export function resolveAgentLayout(
   };
 }
 
-export function normalizeParallelCount(value?: number): ParallelCount {
+/** 将批量数量规范到指定上限，默认沿用通用工作台的 20 张限制。
+ * @param value 外部传入的数量。
+ * @param maxCount 当前工作台允许的最大数量。
+ * @returns 介于 1 和 maxCount 之间的整数。
+ */
+export function normalizeParallelCount(value?: number, maxCount = MAX_PARALLEL_COUNT): ParallelCount {
   const rounded = Math.round(Number(value) || 1);
-  const clamped = clampNumber(rounded, 1, MAX_PARALLEL_COUNT);
+  const clamped = clampNumber(rounded, 1, maxCount);
   return clamped as ParallelCount;
 }

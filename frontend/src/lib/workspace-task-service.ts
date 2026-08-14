@@ -23,6 +23,7 @@ export interface TextToImageSubmitInput {
   prompts: string[];
   outputSize: OutputSize;
   customSize?: string;
+  customSizeAlignMultiple?: boolean;
   aspectRatio: AspectRatio;
   temperature: number;
   model: string;
@@ -39,6 +40,7 @@ export interface ImageToImageSubmitInput {
   files: { id: string; name: string; dataUrl: string; mimeType: string }[];
   outputSize: OutputSize;
   customSize?: string;
+  customSizeAlignMultiple?: boolean;
   aspectRatio: AspectRatio;
   temperature: number;
   model: string;
@@ -504,6 +506,7 @@ export async function submitTextToImage(
           prompt,
           outputSize: input.outputSize,
           customSize: input.customSize,
+          customSizeAlignMultiple: input.customSizeAlignMultiple,
           aspectRatio: input.aspectRatio,
           ...(provider.supportsTemperature ? { temperature: input.temperature } : {}),
           model: provider.modelId,
@@ -603,6 +606,7 @@ export async function submitImageToImage(
         prompt: input.prompt,
         outputSize: input.outputSize,
         customSize: input.customSize,
+        customSizeAlignMultiple: input.customSizeAlignMultiple,
         aspectRatio: input.aspectRatio,
         ...(provider.supportsTemperature ? { temperature: input.temperature } : {}),
         model: provider.modelId,

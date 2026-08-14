@@ -57,7 +57,9 @@ describe('ImageGenerationWorkbench', () => {
     const landscapePreview = await screen.findByTestId('aspect-ratio-preview-3-2');
     expect(squarePreview).toHaveStyle({ width: '36px', height: '36px' });
     expect(landscapePreview).toHaveStyle({ width: '48px', height: '32px' });
-    expect(screen.getByText('Square')).toBeInTheDocument();
-    expect(screen.getAllByText('Landscape').length).toBeGreaterThan(0);
+    expect(screen.getByText('1:1')).toBeInTheDocument();
+    expect(screen.getByText('3:2')).toBeInTheDocument();
+    expect(screen.queryByText('Square')).not.toBeInTheDocument();
+    expect(screen.queryByText('Landscape')).not.toBeInTheDocument();
   });
 });

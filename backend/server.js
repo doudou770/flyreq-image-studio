@@ -42,13 +42,14 @@ const TASK_STATUS = {
 };
 const GLOBAL_TASK_CONCURRENCY = 50;
 const MAX_PARALLEL_COUNT = 20;
+const MAX_IMAGE_PARALLEL_COUNT = 50;
 const DEFAULT_LIMIT_CONFIG = {
   maxQueueSize: 200,
   rateLimitWindowMs: 60 * 1000,
   maxRequestsPerIp: 20,
   maxRequestsPerApiKey: 20,
-  maxPendingTasksPerIp: 20,
-  maxPendingTasksPerApiKey: 20,
+  maxPendingTasksPerIp: 50,
+  maxPendingTasksPerApiKey: 50,
   retryAfterSeconds: 30,
 };
 const LIMIT_ERROR_MESSAGES = {
@@ -788,6 +789,14 @@ function enforceRateLimit(req, body, config) {
   return { ip, apiKeyHash };
 }
 
+/** 返回不同任务类型允许的批量数量上限。
+ * @param mode 当前任务模式。
+ * @returns 对应模式的最大并发数量。
+ */
+function getMaxParallelCount(mode) {
+  return mode === 'text-to-image' || mode === 'image-to-image' ? MAX_IMAGE_PARALLEL_COUNT : MAX_PARALLEL_COUNT;
+}
+
 /**
  * 校验队列和来源维度是否有足够容量接收新任务。
  * @param source 当前请求的 IP 与 API Key 哈希来源。
@@ -796,10 +805,10 @@ function enforceRateLimit(req, body, config) {
  * @param requestedTasks 本次请求将创建的独立任务数量。
  * @returns 无返回值；容量不足时抛出带 HTTP 状态码的异常。
  */
-function enforceQueueCapacity(source, config, requestedSlots = 1, requestedTasks = 1) {
+function enforceQueueCapacity(source, config, requestedSlots = 1, requestedTasks = 1, maxParallelCount = MAX_PARALLEL_COUNT) {
   const stats = getQueueStats();
-  const slotsToReserve = Math.max(1, Math.min(MAX_PARALLEL_COUNT, Math.trunc(Number(requestedSlots)) || 1));
-  const tasksToReserve = Math.max(1, Math.min(MAX_PARALLEL_COUNT, Math.trunc(Number(requestedTasks)) || 1));
+  const slotsToReserve = Math.max(1, Math.min(maxParallelCount, Math.trunc(Number(requestedSlots)) || 1));
+  const tasksToReserve = Math.max(1, Math.min(maxParallelCount, Math.trunc(Number(requestedTasks)) || 1));
   if (stats.pendingCount >= config.maxQueueSize) {
     throw createHttpError(503, 'QUEUE_FULL', LIMIT_ERROR_MESSAGES.queueFull, config.retryAfterSeconds);
   }
@@ -839,7 +848,7 @@ function getQueueStats() {
       WHERE status IN (?, ?, ?)
     )
     GROUP BY status
-  `).all(MAX_PARALLEL_COUNT, TASK_STATUS.QUEUED, TASK_STATUS.LEGACY_QUEUED, TASK_STATUS.PROCESSING);
+  `).all(Math.max(MAX_PARALLEL_COUNT, MAX_IMAGE_PARALLEL_COUNT), TASK_STATUS.QUEUED, TASK_STATUS.LEGACY_QUEUED, TASK_STATUS.PROCESSING);
   const counts = Object.fromEntries(rows.map(row => [row.status, Number(row.count || 0)]));
   const slots = Object.fromEntries(rows.map(row => [row.status, Number(row.slots || 0)]));
   const processingCount = counts[TASK_STATUS.PROCESSING] || 0;
@@ -1039,7 +1048,7 @@ function parseAspectRatio(aspectRatio) {
 }
 
 function getImageLayoutTargetSize(request) {
-  const customSize = normalizeCustomImageSize(request.customSize, 3840);
+  const customSize = normalizeCustomImageSize(request.customSize, 3840, request.customSizeAlignMultiple !== false);
   if (customSize) return parseImageSize(customSize);
 
   const requestedSize = getGptImageSize(request.outputSize, request.aspectRatio);
@@ -1740,7 +1749,7 @@ function validateCreatePayload(body) {
   if (body.mode !== 'text-to-image' && body.mode !== 'image-to-image') throw new Error('任务模式无效');
   if (typeof body.prompt !== 'string' || body.prompt.trim().length === 0) throw new Error('提示词不能为空');
   if (typeof body.model !== 'string' || body.model.trim().length === 0) throw new Error('模型名称不能为空');
-  if (!Number.isInteger(body.parallelCount) || body.parallelCount < 1 || body.parallelCount > MAX_PARALLEL_COUNT) throw new Error('并发数量无效');
+  if (!Number.isInteger(body.parallelCount) || body.parallelCount < 1 || body.parallelCount > getMaxParallelCount(body.mode)) throw new Error('并发数量无效');
   if (body.imageApiFlavor !== undefined && !IMAGE_API_FLAVORS.has(body.imageApiFlavor)) throw new Error('图片 API 类型无效');
   if (body.temperature !== undefined && (!Number.isFinite(body.temperature) || body.temperature < 0 || body.temperature > 2)) throw new Error('温度参数无效');
 
@@ -1794,6 +1803,7 @@ function buildTaskRequestForDb(body, parallelCount = body.parallelCount, promptV
     prompt: body.prompt,
     outputSize: body.outputSize,
     customSize: body.customSize,
+    customSizeAlignMultiple: body.customSizeAlignMultiple !== false,
     aspectRatio: body.aspectRatio,
     temperature: body.temperature,
     model: body.model,
@@ -1838,7 +1848,7 @@ function createTask(body, req) {
     throw createHttpError(503, 'SERVER_NOT_ACCEPTING_TASKS', LIMIT_ERROR_MESSAGES.notAcceptingTasks, limitConfig.retryAfterSeconds);
   }
   const source = enforceRateLimit(req, body, limitConfig);
-  enforceQueueCapacity(source, limitConfig, body.parallelCount);
+  enforceQueueCapacity(source, limitConfig, body.parallelCount, body.parallelCount, getMaxParallelCount(body.mode));
 
   const taskId = randomUUID();
   const now = new Date().toISOString();
@@ -1878,7 +1888,7 @@ function createTaskBatch(body, req) {
     throw createHttpError(503, 'SERVER_NOT_ACCEPTING_TASKS', LIMIT_ERROR_MESSAGES.notAcceptingTasks, limitConfig.retryAfterSeconds);
   }
   const source = enforceRateLimit(req, body, limitConfig);
-  enforceQueueCapacity(source, limitConfig, body.parallelCount, body.parallelCount);
+  enforceQueueCapacity(source, limitConfig, body.parallelCount, body.parallelCount, getMaxParallelCount(body.mode));
 
   const now = new Date().toISOString();
   const tasks = Array.from({ length: body.parallelCount }, (_, index) => {
@@ -1934,7 +1944,7 @@ function parseImageSize(size) {
   return Number.isFinite(width) && Number.isFinite(height) ? { width, height } : undefined;
 }
 
-function isImageSizeWithinLimits(width, height, maxSide) {
+function isImageSizeWithinLimits(width, height, maxSide, requireMultiple = true) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return false;
 
   const limit = typeof maxSide === 'number' && maxSide > 0 ? maxSide : Number.POSITIVE_INFINITY;
@@ -1944,8 +1954,7 @@ function isImageSizeWithinLimits(width, height, maxSide) {
 
   return (
     longSide <= limit &&
-    width % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0 &&
-    height % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0 &&
+    (!requireMultiple || (width % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0 && height % CUSTOM_IMAGE_SIZE_LIMITS.multiple === 0)) &&
     longSide / shortSide <= CUSTOM_IMAGE_SIZE_LIMITS.maxAspectRatio &&
     pixels >= CUSTOM_IMAGE_SIZE_LIMITS.minPixels &&
     pixels <= CUSTOM_IMAGE_SIZE_LIMITS.maxPixels
@@ -1999,14 +2008,14 @@ function getGptImageSize(outputSize, aspectRatio) {
   return `${width}x${height}`;
 }
 
-function normalizeCustomImageSize(size, maxSide) {
+function normalizeCustomImageSize(size, maxSide, alignToMultiple = true) {
   const parsed = parseImageSize(size);
   if (!parsed) return undefined;
 
   const limit = typeof maxSide === 'number' && maxSide > 0 ? maxSide : Number.POSITIVE_INFINITY;
-  const width = Math.min(roundToMultiple(parsed.width, CUSTOM_IMAGE_SIZE_LIMITS.multiple), limit);
-  const height = Math.min(roundToMultiple(parsed.height, CUSTOM_IMAGE_SIZE_LIMITS.multiple), limit);
-  if (!isImageSizeWithinLimits(width, height, maxSide)) return undefined;
+  const width = Math.min(alignToMultiple ? roundToMultiple(parsed.width, CUSTOM_IMAGE_SIZE_LIMITS.multiple) : Math.trunc(parsed.width), limit);
+  const height = Math.min(alignToMultiple ? roundToMultiple(parsed.height, CUSTOM_IMAGE_SIZE_LIMITS.multiple) : Math.trunc(parsed.height), limit);
+  if (!isImageSizeWithinLimits(width, height, maxSide, alignToMultiple)) return undefined;
 
   return `${width}x${height}`;
 }
@@ -2017,7 +2026,10 @@ function getSupportedGptImageSize(model, outputSize, aspectRatio) {
 
 function resolveGptImageRequestSize(request) {
   const customSize = normalizeCustomImageSize(request.customSize, 3840);
-  if (customSize) return customSize;
+  const alignedCustomSize = request.customSizeAlignMultiple === false
+    ? normalizeCustomImageSize(request.customSize, 3840, false)
+    : customSize;
+  if (alignedCustomSize) return alignedCustomSize;
   return getSupportedGptImageSize(request.model, request.outputSize, request.aspectRatio);
 }
 

@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { QuickPromptDialog } from '@/components/QuickPromptDialog';
 import { PromptOptimizeDialog } from '@/components/PromptOptimizeDialog';
 import { AgentAssetPickerDialog, AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
-import { GenerationParamsBar, type GenerationParamsValue } from '@/components/GenerationParamsBar';
+import { GenerationParamsPanel, type GenerationParamsPanelValue } from '@/components/GenerationParamsPanel';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
 import { useImageModelDefaultRefresh } from '@/hooks/useImageModelDefaultRefresh';
@@ -30,7 +30,7 @@ import {
   getCustomSizeMaxSide,
   getGptImageAdvancedParamsForModel,
   getValidOutputSizes,
-  MAX_PARALLEL_COUNT,
+  MAX_IMAGE_PARALLEL_COUNT,
   normalizeCustomImageSize,
   normalizeModel,
   normalizeParallelCount,
@@ -79,6 +79,7 @@ interface ImageGenerationWorkbenchProps {
     prompt?: string;
     outputSize?: OutputSize;
     customSize?: string;
+    customSizeAlignMultiple?: boolean;
     aspectRatio?: AspectRatio;
     temperature?: number;
     model?: ModelId;
@@ -114,7 +115,7 @@ function getSettingsFallback(preferImageSettings: boolean): Partial<WorkbenchSet
 function normalizePromptVariants(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
-    .slice(0, MAX_PARALLEL_COUNT)
+    .slice(0, MAX_IMAGE_PARALLEL_COUNT)
     .map(item => (typeof item === 'string' ? item : ''));
 }
 
@@ -136,6 +137,7 @@ export function ImageGenerationWorkbench({
   const [model, setModel] = useState<ModelId>(() => getDefaultModelId());
   const [outputSize, setOutputSize] = useState<OutputSize>('1K');
   const [customSize, setCustomSize] = useState<string | undefined>(undefined);
+  const [customSizeAlignMultiple, setCustomSizeAlignMultiple] = useState(true);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1');
   const [temperature, setTemperature] = useState<number>(1);
   const [gptImageAdvancedParams, setGptImageAdvancedParams] = useState<GptImageAdvancedParams>(DEFAULT_GPT_IMAGE_ADVANCED_PARAMS);
@@ -177,20 +179,19 @@ export function ImageGenerationWorkbench({
    * @param patch 参数条变更后的局部配置。
    * @returns 无返回值，相关表单状态会同步更新。
    */
-  const handleParamsChange = useCallback((patch: Partial<GenerationParamsValue>) => {
+  const handleParamsChange = useCallback((patch: Partial<GenerationParamsPanelValue>) => {
     if (patch.model !== undefined) {
       setModel(patch.model);
       updateRegistryDefaults({ [currentMode === 'image-to-image' ? 'imageToImage' : 'textToImage']: patch.model });
     }
     if (patch.outputSize !== undefined) setOutputSize(patch.outputSize);
     if ('customSize' in patch) setCustomSize(patch.customSize);
+    if (patch.customSizeAlignMultiple !== undefined) setCustomSizeAlignMultiple(patch.customSizeAlignMultiple);
     if (patch.aspectRatio !== undefined) setAspectRatio(patch.aspectRatio);
     if (patch.temperature !== undefined) setTemperature(patch.temperature);
     if (patch.parallelCount !== undefined) {
       setParallelCount(patch.parallelCount);
-      if (patch.parallelCount > 1) {
-        setPromptVariantsOpen(true);
-      } else {
+      if (patch.parallelCount <= 1) {
         setPromptVariants([]);
         setPromptVariantsOpen(false);
       }
@@ -217,8 +218,9 @@ export function ImageGenerationWorkbench({
       const nextOutputSize: OutputSize = useInitial && initialData?.outputSize && validSizes.includes(initialData.outputSize)
         ? initialData.outputSize
         : (saved.outputSize && validSizes.includes(saved.outputSize) ? saved.outputSize : validSizes[0]);
+      const nextCustomSizeAlignMultiple = useInitial ? initialData?.customSizeAlignMultiple !== false : saved.customSizeAlignMultiple !== false;
       const nextCustomSize = supportsCustomSize(nextModel) && nextOutputSize !== 'auto'
-        ? normalizeCustomImageSize(useInitial ? initialData?.customSize : saved.customSize, getCustomSizeMaxSide(nextModel))
+        ? normalizeCustomImageSize(useInitial ? initialData?.customSize : saved.customSize, getCustomSizeMaxSide(nextModel), nextCustomSizeAlignMultiple)
         : undefined;
       const validRatios = getAspectRatioOptions(nextModel, nextOutputSize).map(a => a.value);
       const nextAspectRatio: AspectRatio = useInitial && initialData?.aspectRatio && validRatios.includes(initialData.aspectRatio)
@@ -233,18 +235,19 @@ export function ImageGenerationWorkbench({
         background: useInitial ? initialData?.gptImageBackground : saved.gptImageBackground,
         outputFormat: useInitial ? initialData?.gptImageOutputFormat : saved.gptImageOutputFormat,
       });
-      const nextParallelCount = normalizeParallelCount(useInitial ? initialData?.parallelCount : saved.parallelCount);
+      const nextParallelCount = normalizeParallelCount(useInitial ? initialData?.parallelCount : saved.parallelCount, MAX_IMAGE_PARALLEL_COUNT);
       const nextPromptVariants = normalizePromptVariants(useInitial ? initialData?.promptVariants : saved.promptVariants);
 
       setModel(nextModel);
       setOutputSize(nextOutputSize);
       setCustomSize(nextCustomSize);
+      setCustomSizeAlignMultiple(nextCustomSizeAlignMultiple);
       setAspectRatio(nextAspectRatio);
       setTemperature(nextTemperature);
       setGptImageAdvancedParams(nextAdvancedParams);
       setParallelCount(nextParallelCount);
       setPromptVariants(nextPromptVariants);
-      setPromptVariantsOpen(nextParallelCount > 1 && nextPromptVariants.some(item => item.trim()));
+      setPromptVariantsOpen(false);
       if (useInitial) {
         setPrompt(initialData?.prompt || '');
         setPendingFiles((initialData?.refImages || []).map(img => ({
@@ -271,6 +274,7 @@ export function ImageGenerationWorkbench({
       model,
       outputSize,
       customSize,
+      customSizeAlignMultiple,
       aspectRatio,
       temperature,
       gptImageQuality: gptImageAdvancedParams.quality,
@@ -280,7 +284,7 @@ export function ImageGenerationWorkbench({
       parallelCount,
       promptVariants,
     });
-  }, [model, outputSize, customSize, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, promptVariants, settingsReady]);
+  }, [model, outputSize, customSize, customSizeAlignMultiple, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, promptVariants, settingsReady]);
 
   const handleOptimize = useCallback(() => {
     if (!prompt.trim()) return;
@@ -551,7 +555,7 @@ export function ImageGenerationWorkbench({
 
   const handlePromptVariantChange = useCallback((index: number, value: string) => {
     setPromptVariants(prev => {
-      const next = prev.slice(0, MAX_PARALLEL_COUNT);
+      const next = prev.slice(0, MAX_IMAGE_PARALLEL_COUNT);
       next[index] = value;
       return next;
     });
@@ -572,6 +576,7 @@ export function ImageGenerationWorkbench({
         files: pendingFiles,
         outputSize,
         customSize,
+        customSizeAlignMultiple,
         aspectRatio,
         temperature,
         model: modelWithBilling,
@@ -587,6 +592,7 @@ export function ImageGenerationWorkbench({
         prompts: [mainPrompt],
         outputSize,
         customSize,
+        customSizeAlignMultiple,
         aspectRatio,
         temperature,
         model: modelWithBilling,
@@ -713,15 +719,13 @@ export function ImageGenerationWorkbench({
             </p>
 
             <div className="px-3 pt-2 pb-2 sm:px-4">
-              <GenerationParamsBar
-                value={{ model, outputSize, customSize, aspectRatio, temperature, parallelCount, gptImageAdvancedParams }}
+              <GenerationParamsPanel
+                value={{ model, outputSize, customSize, customSizeAlignMultiple, aspectRatio, temperature, parallelCount, gptImageAdvancedParams }}
                 onChange={handleParamsChange}
                 modelUnavailable={disabled}
-              />
-            </div>
-
-            {parallelCount > 1 && (
-              <div className="px-3 pb-2 sm:px-4">
+              >
+                {parallelCount > 1 && (
+                  <div className="border-t border-border/70 pt-3">
                 <button
                   type="button"
                   onClick={() => setPromptVariantsOpen(open => !open)}
@@ -751,8 +755,10 @@ export function ImageGenerationWorkbench({
                     ))}
                   </div>
                 )}
-              </div>
-            )}
+                  </div>
+                )}
+              </GenerationParamsPanel>
+            </div>
 
             {disabled && (
               <div className="mx-3 mb-2 flex flex-col gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 sm:mx-4 sm:flex-row sm:items-center sm:justify-between">
@@ -771,7 +777,7 @@ export function ImageGenerationWorkbench({
               </div>
             )}
 
-            <div className="ml-auto flex w-full justify-end gap-2 px-3 pb-2 sm:w-auto sm:px-4">
+            <div className="sticky bottom-0 z-20 ml-auto flex w-full justify-end gap-2 border-t border-border/70 bg-muted/95 px-3 py-2 backdrop-blur-sm sm:w-auto sm:px-4">
               <PromptSubmissionShortcutMenu value={submissionShortcut} isSmallViewport={isSmallViewport} onValueChange={updateSubmissionShortcut} />
               <Button variant="ghost" size="icon" onClick={() => setQuickPromptOpen(true)} title={t('workbench.quickPrompt')}>
                 <Zap className="w-4 h-4" />
