@@ -4,7 +4,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, Copy, Download, ImagePlus, Maximize, RefreshCw, RotateCcw, Thermometer, Wand2, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useImageLazyLoad } from '@/hooks/useImageLazyLoad';
 import { getBatchImageMarker, getImageSrc, getStoredJobDisplayPrompt, type StoredJob } from '@/lib/job-store';
@@ -16,6 +21,7 @@ import { HistoryImagePreview } from '@/components/workspace/results/HistoryImage
 import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { useI18n } from '@/components/LanguageProvider';
+import { cn } from '@/lib/utils';
 import {
   copyImagePayload,
   dispatchImageActionToast,
@@ -25,6 +31,7 @@ import {
 
 interface CompletedJobCardProps {
   job: StoredJob;
+  largeThumbnail?: boolean;
   onClear: () => void;
   onRetry: (job: StoredJob) => void;
   onRetryDownload?: (job: StoredJob) => void | Promise<void>;
@@ -78,7 +85,11 @@ function getDownloadProgressSummary(progress: StoredJob['imageDownloadProgress']
   };
 }
 
-export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, onRetry, onRetryDownload }: CompletedJobCardProps) {
+/** 渲染已完成的生图任务卡片及其结果缩略图和操作菜单。
+ * @param props 任务数据、缩略图尺寸偏好及任务操作回调。
+ * @returns 已完成任务卡片。
+ */
+export const CompletedJobCard = memo(function CompletedJobCard({ job, largeThumbnail = false, onClear, onRetry, onRetryDownload }: CompletedJobCardProps) {
   const { t } = useI18n();
   const [imgCopied, setImgCopied] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
@@ -329,7 +340,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
         <div className="flex items-center gap-3">
           <div
             ref={lazyLoad.elementRef}
-            className="group relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-muted"
+            className={cn('group relative flex-shrink-0 overflow-hidden rounded-lg bg-muted', largeThumbnail ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-20 w-20')}
           >
             <button
               type="button"
@@ -459,7 +470,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
               {getModelDisplayName(job.model)}
               <span>·</span>
               {outputSizeLabel}
-              {job.aspect_ratio !== 'auto' && <><span>·</span><span>{job.aspect_ratio}</span></>}
+              {job.aspect_ratio !== 'auto' && <><span>·</span><span className="rounded border border-border bg-muted px-1.5 py-0.5 text-sm font-medium leading-none text-foreground">{job.aspect_ratio}</span></>}
               {displayedPrimaryImageResolution && <><span>·</span><span title={t('task.actualResolution')}>{displayedPrimaryImageResolution.width}×{displayedPrimaryImageResolution.height}</span></>}
               {supportsTemperature && <><span>·</span><Thermometer className="w-3 h-3" /><span>{job.temperature?.toFixed(2) ?? 1}</span></>}
               {isMultiple && <><span>·</span><span className="font-medium text-primary">x{sourceImages.length}{job.parallelCount && job.parallelCount > sourceImages.length ? `/${job.parallelCount}` : ''}</span></>}
@@ -473,7 +484,9 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
             )}
           </div>
 
-          <div className="flex flex-shrink-0 items-center gap-1">
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-border pt-2 max-sm:[&_[data-slot=button]]:size-8 max-sm:[&_[data-slot=dropdown-menu-trigger]]:size-8">
             {needsRedownload && onRetryDownload && (
               <Button
                 variant="ghost"
@@ -596,7 +609,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
               <X className="w-4 h-4" />
             </Button>
           </div>
-        </div>
+
       </div>
 
       {previewOpen && createPortal(

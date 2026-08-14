@@ -11,6 +11,7 @@ services:
       FLYREQ_TASK_DB: /app/backend/data/flyreq-tasks.sqlite
       FLYREQ_IMAGE_DIR: /app/backend/data/flyreq-images
       FLYREQ_LOG_DIR: /app/backend/logs/application
+      FLYREQ_IMAGE_UPSTREAM_LOG_DIR: /app/backend/logs/image-upstream
       FLYREQ_VIDEO_UPSTREAM_LOG_DIR: /app/backend/logs/video-upstream
       TZ: ${TZ:-Asia/Shanghai}
     ports:

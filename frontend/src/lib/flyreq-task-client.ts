@@ -87,6 +87,7 @@ export interface CreateFlyreqTaskInput {
   prompt: string;
   outputSize: OutputSize;
   customSize?: string;
+  customSizeAlignMultiple?: boolean;
   aspectRatio: AspectRatio;
   temperature?: number;
   model: string;

@@ -13,6 +13,8 @@ export interface ImageFormSettings {
   model: ModelId;
   outputSize: OutputSize;
   customSize?: string;
+  /** 自定义分辨率是否自动对齐到 16 的倍数。 */
+  customSizeAlignMultiple?: boolean;
   aspectRatio: AspectRatio;
   temperature: number;
   gptImageQuality: GptImageQuality;
