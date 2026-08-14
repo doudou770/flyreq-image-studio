@@ -6,6 +6,16 @@ To ensure code readability and maintainability, you must strictly adhere to the 
 - **Full Method Coverage**: Every single method, function, or API endpoint must include a clear docstring/comment explaining its purpose, input parameters, and return values.
 - **Granularity for Critical Logic**: Provide deep, granular, and step-by-step Chinese comments for complex business logic, algorithms, architectural bottlenecks, or critical state mutations.
 
+# Page Modification Compatibility Standards
+
+Whenever a task involves modifying a page, component, style, or interaction, implementation and verification MUST satisfy all three requirements below. Changes MUST NOT be completed for only one device or display environment:
+
+- **Mobile and PC compatibility**: Page layouts, buttons, dialogs, forms, lists, and core interactions MUST support both mobile and PC widths. Check narrow screens for overflow, occlusion, misalignment, inaccessible controls, and unintended horizontal scrolling.
+- **Theme compatibility**: Every added or modified color, border, background, text, icon, shadow, and state style MUST support both the light and dark themes provided by the project, with consistent contrast, readability, and state recognition.
+- **Multilingual compatibility**: All user-facing text MUST use the existing internationalization mechanism and MUST NOT be hard-coded in a single language. Check text length, wrapping, button widths, feedback messages, and layout stability in every supported language.
+
+After completing a page modification, you MUST verify the mobile layout, PC layout, light theme, dark theme, and every language supported by the project. If any item cannot be verified, the delivery notes MUST explicitly state the reason and impact.
+
 
 # Decision Determinism & Conflict Resolution
 

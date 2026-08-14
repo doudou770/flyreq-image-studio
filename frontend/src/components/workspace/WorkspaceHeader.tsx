@@ -6,7 +6,6 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LanguageToggle } from '@/components/LanguageToggle';
-import { WideModeToggle } from '@/components/WideModeToggle';
 import { useI18n } from '@/components/LanguageProvider';
 import { useBranding } from '@/components/BrandProvider';
 import type { FlyreqQueueStatus } from '@/lib/flyreq-task-client';
@@ -48,8 +47,6 @@ export interface WorkspaceHeaderRef {
 
 interface WorkspaceHeaderProps {
   queueStatus: FlyreqQueueStatus | null;
-  wideMode: boolean;
-  onToggleWideMode: () => void;
   onOpenSettings: () => void;
   onLogoClick?: () => void;
   onOpenNavigation?: () => void;
@@ -63,7 +60,7 @@ interface WorkspaceHeaderProps {
  * @returns 响应式工作台头部与随机图片查看器。
  */
 export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderProps>(function WorkspaceHeader(
-  { queueStatus, wideMode, onToggleWideMode, onOpenSettings, onLogoClick, onOpenNavigation, sidebarMode = false },
+  { queueStatus, onOpenSettings, onLogoClick, onOpenNavigation, sidebarMode = false },
   ref,
 ) {
   const { t } = useI18n();
@@ -228,7 +225,6 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-              <WideModeToggle enabled={wideMode} onToggle={onToggleWideMode} />
               <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background p-0.5 shadow-sm dark:border-input dark:bg-input/20">
                 <ThemeToggle iconOnly />
                 <LanguageToggle iconOnly />

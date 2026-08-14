@@ -77,23 +77,6 @@ export default function RootLayout({
             `,
           }}
         />
-        <Script
-          id="wide-mode-init"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var stored = window.localStorage.getItem(${JSON.stringify(LOCAL_STORAGE_KEYS.wideMode)});
-                  var wide = stored === 'enabled' && window.innerWidth >= 1280;
-                  if (wide) {
-                    document.documentElement.setAttribute('data-wide-mode', '');
-                  }
-                } catch {}
-              })();
-            `,
-          }}
-        />
       </head>
       <body
         className="antialiased min-h-screen bg-background text-foreground"

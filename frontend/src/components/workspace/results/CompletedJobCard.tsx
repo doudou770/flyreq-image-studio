@@ -21,6 +21,7 @@ import { HistoryImagePreview } from '@/components/workspace/results/HistoryImage
 import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { useI18n } from '@/components/LanguageProvider';
+import { cn } from '@/lib/utils';
 import {
   copyImagePayload,
   dispatchImageActionToast,
@@ -30,6 +31,7 @@ import {
 
 interface CompletedJobCardProps {
   job: StoredJob;
+  largeThumbnail?: boolean;
   onClear: () => void;
   onRetry: (job: StoredJob) => void;
   onRetryDownload?: (job: StoredJob) => void | Promise<void>;
@@ -83,7 +85,11 @@ function getDownloadProgressSummary(progress: StoredJob['imageDownloadProgress']
   };
 }
 
-export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, onRetry, onRetryDownload }: CompletedJobCardProps) {
+/** 渲染已完成的生图任务卡片及其结果缩略图和操作菜单。
+ * @param props 任务数据、缩略图尺寸偏好及任务操作回调。
+ * @returns 已完成任务卡片。
+ */
+export const CompletedJobCard = memo(function CompletedJobCard({ job, largeThumbnail = false, onClear, onRetry, onRetryDownload }: CompletedJobCardProps) {
   const { t } = useI18n();
   const [imgCopied, setImgCopied] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
@@ -334,7 +340,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
         <div className="flex items-center gap-3">
           <div
             ref={lazyLoad.elementRef}
-            className="group relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-muted"
+            className={cn('group relative flex-shrink-0 overflow-hidden rounded-lg bg-muted', largeThumbnail ? 'h-24 w-24 sm:h-28 sm:w-28' : 'h-20 w-20')}
           >
             <button
               type="button"

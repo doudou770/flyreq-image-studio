@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Bot, Film, Frame, Images, LibraryBig, Maximize2, PanelLeftClose, PanelLeftOpen, ScanSearch, Settings, Shuffle, Sparkles, User, Video, Wallpaper, X } from 'lucide-react';
+import { Bot, Film, Frame, Images, LibraryBig, PanelLeftClose, PanelLeftOpen, ScanSearch, Settings, Shuffle, Sparkles, User, Video, Wallpaper, X } from 'lucide-react';
 import { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -22,12 +22,10 @@ interface WorkspaceModeTabsProps {
   activeTab: string;
   collapsed: boolean;
   mobileOpen: boolean;
-  wideMode: boolean;
   queueStatus: FlyreqQueueStatus | null;
   showPromptGalleryEntry: boolean;
   onMobileOpenChange: (open: boolean) => void;
   onToggleCollapsed: () => void;
-  onToggleWideMode: () => void;
   onOpenSettings: () => void;
   onOpenPromptGallery: () => void;
   onOpenRandomImage: (url: string, title: string) => void;
@@ -52,12 +50,10 @@ export function WorkspaceModeTabs({
   activeTab,
   collapsed,
   mobileOpen,
-  wideMode,
   queueStatus,
   showPromptGalleryEntry,
   onMobileOpenChange,
   onToggleCollapsed,
-  onToggleWideMode,
   onOpenSettings,
   onOpenPromptGallery,
   onOpenRandomImage,
@@ -101,8 +97,8 @@ export function WorkspaceModeTabs({
         aria-modal={mobileOpen ? true : undefined}
         aria-label={t('navigation.menu')}
         className={cn(
-          'absolute inset-y-0 left-0 flex w-72 flex-col border-r border-border bg-card p-3 shadow-2xl transition-[width] duration-200 lg:relative lg:inset-auto lg:h-full lg:max-h-full lg:rounded-2xl lg:border lg:shadow-sm',
-          collapsed ? 'lg:w-14 lg:px-2' : 'lg:w-48',
+          'absolute inset-y-0 left-0 flex w-[min(88vw,320px)] flex-col border-r border-border bg-card p-3 shadow-2xl transition-[width] duration-200 lg:relative lg:inset-auto lg:h-full lg:max-h-full lg:w-[220px] lg:shrink-0 lg:rounded-none lg:border-y-0 lg:border-l-0 lg:shadow-none',
+          collapsed && 'lg:w-14 lg:px-2',
         )}
       >
         <div className={cn('flex h-11 items-center gap-2', collapsed ? 'lg:justify-center' : 'justify-between')}>
@@ -179,16 +175,6 @@ export function WorkspaceModeTabs({
               <span className={labelsHidden}>{t('tabs.promptGallery')}</span>
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('h-9 w-full justify-start gap-3 rounded-lg px-3 text-xs', collapsed && 'lg:justify-center lg:px-0')}
-            onClick={onToggleWideMode}
-            title={collapsed ? (wideMode ? t('toolbar.exitWideMode') : t('toolbar.wideMode')) : undefined}
-          >
-            <Maximize2 className="size-4 shrink-0" />
-            <span className={labelsHidden}>{wideMode ? t('toolbar.exitWideMode') : t('toolbar.wideMode')}</span>
-          </Button>
         </div>
 
         <div className="mt-auto space-y-2 pt-3">
@@ -239,6 +225,7 @@ export function WorkspaceModeTabs({
             className={cn('hidden h-9 w-full justify-start gap-3 rounded-lg px-3 text-xs lg:flex', collapsed && 'lg:justify-center lg:px-0')}
             onClick={onToggleCollapsed}
             title={collapsed ? t('navigation.expandMenu') : t('navigation.collapseMenu')}
+            aria-label={collapsed ? t('navigation.expandMenu') : t('navigation.collapseMenu')}
           >
             {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
             <span className={labelsHidden}>{collapsed ? t('navigation.expandMenu') : t('navigation.collapseMenu')}</span>

@@ -14,10 +14,9 @@ import { PromptGallery } from '@/components/PromptGallery';
 import { SettingsModal } from '@/components/SettingsModal';
 import { MissingApiKeyDialog } from '@/components/MissingApiKeyDialog';
 import { useQueueStatus } from '@/hooks/useQueueStatus';
-import { useWideMode } from '@/hooks/useWideMode';
-import { useNavigationSidebar } from '@/hooks/useNavigationSidebar';
 import { useServerTaskPolling } from '@/hooks/useServerTaskPolling';
 import { useWorkspaceJobs } from '@/hooks/useWorkspaceJobs';
+import { useNavigationSidebar } from '@/hooks/useNavigationSidebar';
 import { WorkspaceHeader, type WorkspaceHeaderRef } from '@/components/workspace/WorkspaceHeader';
 import { WorkspaceModeTabs } from '@/components/workspace/WorkspaceModeTabs';
 import { HistoryJobList, type GenerationHistoryFilter, type HistoryClearScope } from '@/components/workspace/results/HistoryJobList';
@@ -42,7 +41,8 @@ import { getCleanUrlAfterExternalModelConfig, parseExternalModelConfig, type Ext
 export function WorkspaceShell() {
   const { locale, t } = useI18n();
   const queueStatus = useQueueStatus();
-  const { wideMode, toggleWideMode } = useWideMode();
+  // 统一采用全铺满工作台布局，桌面双栏与移动单栏由 CSS 响应式断点控制。
+  const wideMode = true;
   const { collapsed: navigationCollapsed, toggleCollapsed: toggleNavigationCollapsed } = useNavigationSidebar();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -56,6 +56,11 @@ export function WorkspaceShell() {
   const workspace = useWorkspaceJobs();
   const galleryConfig = usePromptGalleryConfig();
   const promptGallery = usePromptGalleryAccess(galleryConfig.mode, galleryConfig.passwordEnabled, setError, () => setActiveTab('prompt-gallery'), locale);
+
+  useEffect(() => {
+    // 工作台完成首次挂载后移除根布局中的启动遮罩，避免遮罩永久覆盖页面。
+    document.getElementById('app-boot-loader')?.remove();
+  }, []);
 
   // Toast state
   const [toasts, setToasts] = useState<ToastData[]>([]);
@@ -234,24 +239,14 @@ export function WorkspaceShell() {
   }
 
   return (
-    <div
-      className={cn(
-        'mx-auto flex min-h-screen w-full flex-col gap-4 overflow-x-hidden px-3 py-3 transition-[max-width] duration-200 sm:gap-5 sm:px-6 sm:py-5 lg:h-dvh lg:min-h-0 lg:overflow-hidden lg:px-8',
-        wideMode ? 'max-w-none xl:h-dvh xl:min-h-0 xl:gap-3 xl:py-3 xl:overflow-hidden' : 'max-w-[1440px]'
-      )}
-    >
-      <div className={cn(
-        'flex min-h-0 flex-1 flex-col bg-transparent shadow-none sm:rounded-3xl sm:border sm:border-border/70 sm:bg-card/95 sm:shadow-sm'
-      )}>
+    <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-background">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className={cn(
-          'flex min-h-0 flex-1 flex-col gap-4 p-0 sm:p-5',
-          wideMode && 'h-full sm:p-3'
+          'flex min-h-0 flex-1 flex-col gap-4 p-3 sm:p-4 lg:p-6'
         )}>
           <WorkspaceHeader
             ref={headerRef}
             queueStatus={queueStatus}
-            wideMode={wideMode}
-            onToggleWideMode={toggleWideMode}
             onOpenSettings={() => setSettingsOpen(true)}
             onLogoClick={promptGallery.handlePromptGalleryEntry}
             onOpenNavigation={() => setMobileNavigationOpen(true)}
@@ -268,19 +263,18 @@ export function WorkspaceShell() {
               activeTab={activeTab}
               collapsed={navigationCollapsed}
               mobileOpen={mobileNavigationOpen}
-              wideMode={wideMode}
               queueStatus={queueStatus}
               showPromptGalleryEntry={galleryConfig.mode !== '3'}
               onMobileOpenChange={setMobileNavigationOpen}
               onToggleCollapsed={toggleNavigationCollapsed}
-              onToggleWideMode={toggleWideMode}
               onOpenSettings={() => setSettingsOpen(true)}
               onOpenPromptGallery={promptGallery.handlePromptGalleryEntry}
               onOpenRandomImage={(url, title) => headerRef.current?.openRandomImage(url, title)}
             />
 
             <div className={cn(
-              'flex min-w-0 flex-1 flex-col lg:min-h-0',
+              // 主内容在移动端和中等 PC 宽度下承担页面滚动，大屏工作区再切换到内部滚动。
+              'flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto lg:min-h-0',
               !wideMode && (activeTab === 'agent' ? 'lg:overflow-hidden' : 'lg:overflow-x-hidden lg:overflow-y-auto'),
               wideMode && 'xl:flex xl:flex-1 xl:min-h-0 xl:min-w-0',
               wideMode && (activeTab === 'image-generation' || activeTab === 'video-generation' || activeTab === 'agent'
@@ -303,6 +297,8 @@ export function WorkspaceShell() {
                   </div>
                   <HistoryJobList
                     wideMode={wideMode}
+                    singleColumn
+                    largeThumbnail
                     active={activeTab === 'image-generation'}
                     title={t('history.generationTitle')}
                     mode="text-to-image"
@@ -349,9 +345,7 @@ export function WorkspaceShell() {
 
               <TabsContent value="canvas" keepMounted className={cn('min-h-0', wideMode ? 'xl:flex xl:min-h-0 xl:flex-1 xl:flex-col' : 'space-y-6')}>
                 <CanvasWorkspace
-                  wideMode={wideMode}
                   onConfigureApiKey={() => setSettingsOpen(true)}
-                  onEnableWideMode={() => { if (!wideMode) toggleWideMode(); }}
                   showToast={showToast}
                   showPromptGallery={promptGallery.showPromptGallery}
                 />

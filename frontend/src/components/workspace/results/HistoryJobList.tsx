@@ -272,11 +272,12 @@ function useColumnCount(
   ref: React.RefObject<HTMLDivElement | null>,
   wideMode: boolean,
   ready: boolean,
+  singleColumn: boolean,
 ) {
-  const [columns, setColumns] = useState(() => (wideMode && ready ? 2 : 1));
+  const [columns, setColumns] = useState(() => (singleColumn ? 1 : (wideMode && ready ? 2 : 1)));
 
   useEffect(() => {
-    if (!wideMode || !ready) {
+    if (singleColumn || !wideMode || !ready) {
       queueMicrotask(() => setColumns(1));
       return;
     }
@@ -292,25 +293,27 @@ function useColumnCount(
     const observer = new ResizeObserver(compute);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref, wideMode, ready]);
+  }, [ref, singleColumn, wideMode, ready]);
 
-  return wideMode ? columns : 1;
+  return singleColumn || !wideMode ? 1 : columns;
 }
 
 function VirtualJobList({
   jobs,
   active,
   wideMode,
+  singleColumn,
   renderJobCard,
 }: {
   jobs: StoredJob[];
   active: boolean;
   wideMode: boolean;
+  singleColumn: boolean;
   renderJobCard: (job: StoredJob) => React.ReactNode;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const shouldRender = active && jobs.length > 0;
-  const columns = useColumnCount(parentRef, wideMode, shouldRender);
+  const columns = useColumnCount(parentRef, wideMode, shouldRender, singleColumn);
   const gutter = 16;
 
   const virtualizer = useVirtualizer({
@@ -373,6 +376,8 @@ function VirtualJobList({
 interface HistoryJobListProps {
   active: boolean;
   wideMode?: boolean;
+  singleColumn?: boolean;
+  largeThumbnail?: boolean;
   title: string;
   mode: Mode;
   historyFilter?: GenerationHistoryFilter;
@@ -394,6 +399,8 @@ interface HistoryJobListProps {
 export function HistoryJobList({
   active,
   wideMode = false,
+  singleColumn = false,
+  largeThumbnail = false,
   title,
   mode,
   historyFilter,
@@ -422,7 +429,7 @@ export function HistoryJobList({
       return <WaitingJobCard job={job} now={now} isChecking={checkingJobIds.has(job.id)} cooldownEnd={cooldowns.get(job.id)} onCancel={onCancel} onCheckStatus={onCheckStatus} onRetry={onRetry} />;
     }
     if (hasImage) {
-      return <CompletedJobCard job={job} onClear={() => onClear(job.id)} onRetry={onRetry} onRetryDownload={onRetryDownload} />;
+      return <CompletedJobCard job={job} largeThumbnail={largeThumbnail} onClear={() => onClear(job.id)} onRetry={onRetry} onRetryDownload={onRetryDownload} />;
     }
     if (job.status === 'failed') {
       // terminal=true → 后端明确判定不可恢复，不显示"查看进度"
@@ -494,7 +501,7 @@ export function HistoryJobList({
           </p>
         </div>
       ) : (
-        <VirtualJobList jobs={jobs} active={active} wideMode={wideMode} renderJobCard={renderJobCard} />
+        <VirtualJobList jobs={jobs} active={active} wideMode={wideMode} singleColumn={singleColumn} renderJobCard={renderJobCard} />
       )}
     </section>
   );
