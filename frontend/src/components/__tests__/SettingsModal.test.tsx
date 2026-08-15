@@ -70,7 +70,7 @@ describe('SettingsModal unsaved configuration', () => {
     expect(await screen.findByDisplayValue('Image Default')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Video Default')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Text Default')).toBeInTheDocument();
-    expect(screen.getAllByText('Current default')).toHaveLength(3);
+    expect(screen.queryByText('Current default')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
   });
 
@@ -115,7 +115,7 @@ describe('SettingsModal unsaved configuration', () => {
     expect(screen.getAllByRole('button', { name: 'Show or hide API Key' }).length).toBeGreaterThan(0);
   });
 
-  it('fetches remote models securely for every model type while keeping custom model input editable', async () => {
+  it('fetches remote models securely and selects cached models through the filter combobox', async () => {
     localStorage.setItem('flyreq-model-registry', JSON.stringify({
       schemaVersion: 2,
       imageModels: [{ id: 'image-model', protocol: 'openai', name: 'Image', modelId: 'custom-image', apiKey: 'image-key', baseUrl: 'https://image.example.com', builtinPreset: 'gpt-image-2', maxRefImages: 1, maxOutputSize: '1K' }],
@@ -137,9 +137,16 @@ describe('SettingsModal unsaved configuration', () => {
 
     const fetchButtons = await screen.findAllByRole('button', { name: 'Fetch models' });
     expect(fetchButtons).toHaveLength(3);
+    const modelIdInputs = screen.getAllByRole('combobox', { name: 'Model ID' });
+    expect(modelIdInputs).toHaveLength(3);
+    const imageModelIdInput = modelIdInputs[0];
+    expect(imageModelIdInput).toHaveValue('custom-image');
+    expect(modelIdInputs[1]).toHaveValue('video-id');
+    expect(modelIdInputs[2]).toHaveValue('text-id');
+    expect(imageModelIdInput.parentElement?.parentElement?.parentElement).toContainElement(fetchButtons[0]);
     fireEvent.click(fetchButtons[0]);
 
-    expect(await screen.findByText('1 models fetched. Select one below or enter a custom model ID.')).toBeInTheDocument();
+    expect(await screen.findByText('1 models fetched. Filter the list and select a model.')).toBeInTheDocument();
     const modelRequest = fetchMock.mock.calls.find(([input]) => input === '/api/flyreq/proxy/models');
     expect(modelRequest?.[1]).toMatchObject({ method: 'POST' });
     expect(JSON.parse(String(modelRequest?.[1]?.body))).toEqual({
@@ -148,11 +155,12 @@ describe('SettingsModal unsaved configuration', () => {
       protocol: 'openai',
     });
 
-    fireEvent.click(screen.getByText('Select a fetched model'));
-    fireEvent.click(await screen.findByRole('option', { name: 'Fetched Image (image-fetched)' }));
-    const selectedInput = screen.getByDisplayValue('image-fetched');
-    fireEvent.change(selectedInput, { target: { value: 'my-custom-model' } });
-    expect(screen.getByDisplayValue('my-custom-model')).toBeInTheDocument();
+    const selectedInput = screen.getAllByRole('combobox', { name: 'Model ID' })[0];
+    fireEvent.click(screen.getAllByRole('button', { name: 'Model ID' })[0]);
+    const fetchedOption = await screen.findByText('Fetched Image (image-fetched)');
+    fireEvent.click(fetchedOption);
+    expect(selectedInput).toHaveValue('Fetched Image (image-fetched)');
+    expect(document.querySelector<HTMLInputElement>('#model-catalog-image-model-hidden-input')).toHaveValue('image-fetched');
   });
 
   it('shows the save bar after editing and commits the configuration', async () => {
