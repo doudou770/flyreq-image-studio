@@ -81,6 +81,7 @@ function getRecommendedResolution(options: { value: AspectRatio; resolution: str
  */
 export function GenerationParamsPanel({ value, onChange, modelUnavailable = false, children }: GenerationParamsPanelProps) {
   const { t } = useI18n();
+  // 移动端默认收起以节省首屏空间，桌面端也允许用户主动收起参数区。
   const [expanded, setExpanded] = useState(() => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 767px)').matches);
   const model = value.model;
   const sizeOptions = getSizeOptions(model);
@@ -219,12 +220,12 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
 
   return (
     <section className="rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
-      <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setExpanded(current => !current)} aria-expanded={expanded}>
+      <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setExpanded(current => !current)} aria-expanded={expanded} aria-controls="generation-params-content">
         <span className="flex items-center gap-2 text-sm font-semibold"><SlidersHorizontal className="size-4 text-primary" />{t('workbench.generationParams')}</span>
-        <ChevronDown className={cn('size-4 text-muted-foreground transition-transform md:hidden', expanded && 'rotate-180')} />
+        <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
       </button>
 
-      <div className={cn('mt-4 space-y-4', !expanded && 'hidden md:block')}>
+      <div id="generation-params-content" className={cn('mt-4 space-y-4', !expanded && 'hidden')}>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t('workbench.model')}</label>
@@ -259,7 +260,7 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
         )}
 
         {supportsCustomSize(model) && !autoLocked && (
-          <div className="space-y-2 rounded-lg border border-border/70 bg-background/40 p-2.5">
+          <div className="space-y-2 border-t border-border/60 pt-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-medium text-muted-foreground">{t('workbench.customResolution')}</label>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">

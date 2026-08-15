@@ -163,7 +163,10 @@ export function ImageGenerationWorkbench({
   const promptOptimizeUsable = promptOptimizeEnabled && promptOptimizeAvailable;
   const imageModelDefaultRefreshVersion = useImageModelDefaultRefresh();
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
-  const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport);
+  const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport, {
+    submission: t('workbench.mobileSend'),
+    newline: t('workbench.mobileNewline'),
+  });
 
   useEffect(() => () => {
     // 工作台卸载时终止仍在读取的提示词优化流，避免后台请求和卸载后的状态回调继续运行。
@@ -705,18 +708,24 @@ export function ImageGenerationWorkbench({
               </div>
             )}
 
-            <Textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={pendingFiles.length > 0 ? t('workbench.imageEditPlaceholder') : t('workbench.imageGeneratePlaceholder')}
-              rows={3}
-              className="resize-none rounded-none border-0 bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4"
-            />
-            <p className="px-3 pb-1 text-xs text-muted-foreground sm:px-4" aria-live="polite">
-              {t('workbench.shortcutHint', { submission: shortcutLabels.submission, newline: shortcutLabels.newline })}
-            </p>
+            <div className="mx-3 mt-1 overflow-hidden rounded-xl border-2 border-primary/35 bg-background/70 shadow-sm transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/15 sm:mx-4">
+              <label htmlFor="image-generation-prompt" className="block px-3 pt-3 text-xs font-semibold text-primary sm:px-4 sm:pt-4">
+                {t('workbench.promptLabel')}
+              </label>
+              <Textarea
+                id="image-generation-prompt"
+                ref={textareaRef}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={pendingFiles.length > 0 ? t('workbench.imageEditPlaceholder') : t('workbench.imageGeneratePlaceholder')}
+                rows={6}
+                className="min-h-40 resize-none rounded-none border-0 bg-transparent px-3 pt-2.5 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:min-h-48 sm:px-4 sm:pt-2.5"
+              />
+              <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4" aria-live="polite">
+                {t('workbench.shortcutHint', { submission: shortcutLabels.submission, newline: shortcutLabels.newline })}
+              </p>
+            </div>
 
             <div className="px-3 pt-2 pb-2 sm:px-4">
               <GenerationParamsPanel
