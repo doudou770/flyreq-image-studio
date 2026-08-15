@@ -11,6 +11,10 @@ import { LOCAL_STORAGE_KEYS } from '@/lib/storage-contract';
 
 export interface ImageFormSettings {
   model: ModelId;
+  /** 当前工作台选择的远端模型 ID；缺失时回退到渠道配置中的模型 ID。 */
+  modelId?: string;
+  /** 新版工作台使用的渠道 ID，旧缓存仍通过 model 字段兼容。 */
+  channelId?: ModelId;
   outputSize: OutputSize;
   customSize?: string;
   /** 自定义分辨率是否自动对齐到 16 的倍数。 */

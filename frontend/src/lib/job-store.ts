@@ -32,6 +32,8 @@ export interface StoredJob {
   temperature: number;
   aspect_ratio: AspectRatio;
   model: string;
+  /** 工作台实际选择的远端模型 ID；旧历史记录缺失时回退渠道默认模型。 */
+  remoteModelId?: string;
   gptImageQuality?: GptImageQuality;
   gptImageStyle?: GptImageStyle;
   gptImageBackground?: GptImageBackground;

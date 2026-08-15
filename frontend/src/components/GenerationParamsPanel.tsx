@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, SlidersHorizontal, Thermometer } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -29,10 +29,13 @@ import {
   type GptImageQuality,
   type ParallelCount,
 } from '@/lib/model-capabilities';
+import { getImageModelById, getResolvedImageModelId, loadRegistry } from '@/lib/flyreq-models';
+import { getModelCatalogCache, MODEL_CATALOG_CACHE_UPDATED_EVENT } from '@/lib/model-catalog-cache';
 import type { AspectRatio, OutputSize } from '@/lib/job-store';
 
 export interface GenerationParamsPanelValue {
   model: ModelId;
+  modelId: string;
   outputSize: OutputSize;
   customSize?: string;
   aspectRatio: AspectRatio;
@@ -92,6 +95,24 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
   const customSizeMaxSide = getCustomSizeMaxSide(model) || 3840;
   const alignCustomSize = value.customSizeAlignMultiple;
   const [parallelMenuOpen, setParallelMenuOpen] = useState(false);
+  const [, setCatalogVersion] = useState(0);
+  useEffect(() => {
+    const handleCatalogUpdate = () => setCatalogVersion(version => version + 1);
+    window.addEventListener(MODEL_CATALOG_CACHE_UPDATED_EVENT, handleCatalogUpdate);
+    return () => window.removeEventListener(MODEL_CATALOG_CACHE_UPDATED_EVENT, handleCatalogUpdate);
+  }, []);
+  const channelConfig = getImageModelById(loadRegistry(), model);
+  const cachedCatalog = getModelCatalogCache(model, channelConfig ? { protocol: channelConfig.protocol, baseUrl: channelConfig.baseUrl } : undefined);
+  const configuredRemoteModelId = channelConfig ? getResolvedImageModelId(channelConfig) : '';
+  const remoteModelOptions = useMemo(() => [
+    ...(cachedCatalog?.options || []),
+    ...(value.modelId && !(cachedCatalog?.options || []).some(option => option.id === value.modelId)
+      ? [{ id: value.modelId, name: value.modelId }]
+      : []),
+    ...(!cachedCatalog?.options?.length && configuredRemoteModelId && configuredRemoteModelId !== value.modelId
+      ? [{ id: configuredRemoteModelId, name: configuredRemoteModelId }]
+      : []),
+  ].filter((option, index, options) => options.findIndex(candidate => candidate.id === option.id) === index), [cachedCatalog, configuredRemoteModelId, value.modelId]);
   const recommendedResolution = getRecommendedResolution(aspectOptions, value.aspectRatio);
   const [customWidth, setCustomWidth] = useState(() => parseCustomSize(value.customSize || recommendedResolution).width);
   const [customHeight, setCustomHeight] = useState(() => parseCustomSize(value.customSize || recommendedResolution).height);
@@ -166,8 +187,19 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
       ? value.aspectRatio
       : (nextAspectOptions[0]?.value || '1:1');
     const nextResolution = getRecommendedResolution(nextAspectOptions, nextAspectRatio);
+    const nextConfiguredModelId = getImageModelById(loadRegistry(), nextModel);
+    const nextCatalog = getModelCatalogCache(nextModel, nextConfiguredModelId
+      ? { protocol: nextConfiguredModelId.protocol, baseUrl: nextConfiguredModelId.baseUrl }
+      : undefined);
+    const nextConfiguredRemoteModelId = nextConfiguredModelId ? getResolvedImageModelId(nextConfiguredModelId) : '';
+    const nextRemoteModelId = nextCatalog?.options.find(option => option.id === value.modelId)?.id
+      || nextCatalog?.options.find(option => option.id === nextConfiguredRemoteModelId)?.id
+      || nextConfiguredRemoteModelId
+      || nextCatalog?.options[0]?.id
+      || (nextModel === model ? value.modelId : '');
     onChange({
       model: nextModel,
+      modelId: nextRemoteModelId,
       outputSize: nextOutputSize,
       customSize: supportsCustomSize(nextModel)
         ? (normalizeCustomImageSize(value.customSize || nextResolution, getCustomSizeMaxSide(nextModel), alignCustomSize) || undefined)
@@ -175,6 +207,15 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
       aspectRatio: nextAspectRatio,
       gptImageAdvancedParams: nextAdvanced,
     });
+  };
+
+  /**
+   * 切换当前渠道下实际提交的远端模型 ID。
+   * @param nextModelId 当前渠道目录中的远端模型 ID。
+   * @returns 无返回值，通过 onChange 写回表单状态。
+   */
+  const handleRemoteModelChange = (nextModelId: string) => {
+    onChange({ modelId: nextModelId });
   };
 
   /** 切换输出尺寸并在当前画幅不可用时回退到该尺寸的首个可用画幅。
@@ -228,12 +269,23 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
       <div id="generation-params-content" className={cn('mt-4 space-y-4', !expanded && 'hidden')}>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t('workbench.model')}</label>
+            <label className="text-xs font-medium text-muted-foreground">{t('workbench.channel')}</label>
             {modelUnavailable ? (
               <button type="button" disabled title={t('common.notConfigured')} className="h-8 w-full rounded-lg border border-input px-2.5 text-left text-sm text-muted-foreground">{t('common.notConfigured')}</button>
             ) : (
               <Select<ModelId> value={model} onValueChange={handleModelChange} size="sm" options={MODEL_OPTIONS.map(option => ({ value: option.value, label: option.label }))} placeholder={t('common.notConfigured')} />
             )}
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{t('workbench.model')}</label>
+            <Select<string>
+              value={value.modelId}
+              onValueChange={handleRemoteModelChange}
+              size="sm"
+              disabled={modelUnavailable || remoteModelOptions.length === 0}
+              options={remoteModelOptions.map(option => ({ value: option.id, label: option.name === option.id ? option.id : `${option.name} (${option.id})` }))}
+              placeholder={t('workbench.selectRemoteModel')}
+            />
           </div>
           {supportsAdvanced && (
             <div className="space-y-1.5">

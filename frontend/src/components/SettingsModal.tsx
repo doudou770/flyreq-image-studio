@@ -77,6 +77,7 @@ import { getOutputSizeLabel } from '@/lib/model-capabilities';
 import { getVideoProtocolConfig } from '@/lib/video-config';
 import { useBranding } from '@/components/BrandProvider';
 import { useI18n } from '@/components/LanguageProvider';
+import { clearModelCatalogCache, getModelCatalogCache, isModelCatalogCacheStale, loadModelCatalogCache, pruneModelCatalogCache, saveModelCatalogCache } from '@/lib/model-catalog-cache';
 
 type ImageModelKeyGuide = typeof IMAGE_MODEL_KEY_GUIDE;
 
@@ -131,6 +132,7 @@ interface ModelCatalogState {
   options: RemoteModelOption[];
   error: string | null;
   loaded: boolean;
+  fetchedAt?: number;
 }
 
 interface ModelCatalogControlsProps {
@@ -141,6 +143,7 @@ interface ModelCatalogControlsProps {
   selectPlaceholder: string;
   successMessage: string;
   emptyMessage: string;
+  staleMessage: string;
   onFetch: () => void;
   onSelect: (modelId: string) => void;
 }
@@ -150,7 +153,7 @@ interface ModelCatalogControlsProps {
  * @param props 按钮文案、目录状态及获取和选择回调。
  * @returns 可复用于图片、视频和文本模型的目录选择控件。
  */
-function ModelCatalogControls({ state, fetchLabel, fetchingLabel, remoteModelLabel, selectPlaceholder, successMessage, emptyMessage, onFetch, onSelect }: ModelCatalogControlsProps) {
+function ModelCatalogControls({ state, fetchLabel, fetchingLabel, remoteModelLabel, selectPlaceholder, successMessage, emptyMessage, staleMessage, onFetch, onSelect }: ModelCatalogControlsProps) {
   return (
     <div className="space-y-2">
       <Button type="button" variant="outline" size="sm" className="gap-2" disabled={state?.loading} onClick={onFetch}>
@@ -159,6 +162,7 @@ function ModelCatalogControls({ state, fetchLabel, fetchingLabel, remoteModelLab
       </Button>
       {state?.error && <p className="text-xs text-destructive">{state.error}</p>}
       {state?.loaded && state.options.length === 0 && <p className="text-xs text-muted-foreground">{emptyMessage}</p>}
+      {state?.fetchedAt && isModelCatalogCacheStale(state.fetchedAt) && <p className="text-xs text-amber-600 dark:text-amber-400">{staleMessage}</p>}
       {state && state.options.length > 0 && (
         <div className="space-y-2">
           <label className="text-xs text-muted-foreground">{remoteModelLabel}</label>
@@ -519,6 +523,8 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
   const savedStateTimerRef = useRef<number | null>(null);
+  const pendingModelCatalogClearsRef = useRef<Set<string>>(new Set());
+  const modelCatalogRequestVersionsRef = useRef<Map<string, number>>(new Map());
 
   const [backupProgress, setBackupProgress] = useState<BackupProgressType>({ percent: 0, message: '' });
   const [isBackupActive, setIsBackupActive] = useState(false);
@@ -535,6 +541,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
       savedStateTimerRef.current = null;
     }
     let cancelled = false;
+    pendingModelCatalogClearsRef.current.clear();
     queueMicrotask(() => {
       if (cancelled) return;
       setImageModels(registry.imageModels.map(cloneImageModel));
@@ -549,7 +556,25 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
       setExternalConfigNotice(null);
       setModelStatuses(null);
       setModelCheckError(null);
-      setModelCatalogs({});
+      const cachedCatalogs = loadModelCatalogCache();
+      const catalogSources = new Map<string, { protocol: string; baseUrl: string }>();
+      registry.imageModels.forEach(model => catalogSources.set(model.id, { protocol: model.protocol, baseUrl: model.baseUrl }));
+      registry.textModels.forEach(model => catalogSources.set(model.id, { protocol: model.protocol, baseUrl: model.baseUrl }));
+      registry.videoModels.forEach(model => catalogSources.set(model.id, { protocol: 'openai', baseUrl: model.baseUrl }));
+      const restoredCatalogs = Object.keys(cachedCatalogs).flatMap(channelId => {
+        const source = catalogSources.get(channelId);
+        const matchingEntry = source ? getModelCatalogCache(channelId, source) : undefined;
+        if (!matchingEntry) return [];
+        return [[channelId, {
+          loading: false,
+          options: matchingEntry.options,
+          error: null,
+          loaded: true,
+          fetchedAt: matchingEntry.fetchedAt,
+        }] as const];
+      });
+      setModelCatalogs(Object.fromEntries(restoredCatalogs));
+      pruneModelCatalogCache([...registry.imageModels, ...registry.videoModels, ...registry.textModels].map(model => model.id));
       setBackupError(null);
       setBackupSuccess(null);
       setPromptOptimizeEnabledState(optimizeEnabled);
@@ -701,6 +726,9 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 无返回值；状态不存在时保持当前目录集合不变。
    */
   const clearModelCatalog = (modelId: string): void => {
+    const nextRequestVersion = (modelCatalogRequestVersionsRef.current.get(modelId) || 0) + 1;
+    modelCatalogRequestVersionsRef.current.set(modelId, nextRequestVersion);
+    pendingModelCatalogClearsRef.current.add(modelId);
     setModelCatalogs(previous => {
       if (!previous[modelId]) return previous;
       const next = { ...previous };
@@ -716,14 +744,21 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 请求完成后更新对应模型的目录状态，无直接返回值。
    */
   const handleFetchModels = async (model: { id: string; baseUrl: string; apiKey: string }, protocol: ProviderProtocol): Promise<void> => {
+    // 每个渠道独立递增请求版本，来源字段变化时旧响应会因版本不匹配而被丢弃。
+    const requestVersion = (modelCatalogRequestVersionsRef.current.get(model.id) || 0) + 1;
+    modelCatalogRequestVersionsRef.current.set(model.id, requestVersion);
     setModelCatalogs(previous => ({
       ...previous,
       [model.id]: { loading: true, options: previous[model.id]?.options || [], error: null, loaded: false },
     }));
     try {
       const options = await fetchRemoteModels({ baseUrl: model.baseUrl, apiKey: model.apiKey, protocol });
-      setModelCatalogs(previous => ({ ...previous, [model.id]: { loading: false, options, error: null, loaded: true } }));
+      if (modelCatalogRequestVersionsRef.current.get(model.id) !== requestVersion) return;
+      saveModelCatalogCache({ channelId: model.id, protocol, baseUrl: model.baseUrl, options });
+      pendingModelCatalogClearsRef.current.delete(model.id);
+      setModelCatalogs(previous => ({ ...previous, [model.id]: { loading: false, options, error: null, loaded: true, fetchedAt: Date.now() } }));
     } catch (requestError) {
+      if (modelCatalogRequestVersionsRef.current.get(model.id) !== requestVersion) return;
       setModelCatalogs(previous => ({
         ...previous,
         [model.id]: {
@@ -790,6 +825,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   };
 
   const handleDeleteImageModel = (id: string) => {
+    clearModelCatalog(id);
     const nextModels = imageModels.filter((model) => model.id !== id);
     setImageModels(nextModels);
     setDefaults((prev) => ({
@@ -848,6 +884,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 无返回值。
    */
   const handleDeleteVideoModel = (id: string) => {
+    clearModelCatalog(id);
     const nextModels = videoModels.filter(model => model.id !== id);
     setVideoModels(nextModels);
     setDefaults(previous => ({ ...previous, videoGeneration: previous.videoGeneration === id ? '' : previous.videoGeneration }));
@@ -860,6 +897,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   };
 
   const handleDeleteTextModel = (id: string) => {
+    clearModelCatalog(id);
     const nextModels = textModels.filter((model) => model.id !== id);
     setTextModels(nextModels);
     setDefaults((prev) => ({
@@ -898,6 +936,8 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
 
     // 第二步持久化全部草稿，再同步依赖注册表的工作台缓存与跨组件事件。
     saveRegistry(registry);
+    for (const modelId of pendingModelCatalogClearsRef.current) clearModelCatalogCache(modelId);
+    pendingModelCatalogClearsRef.current.clear();
     const persistedRegistry = loadRegistry();
     if (hasNoCompleteImageModelBeforeSave && persistedRegistry.defaults.textToImage) {
       saveFirstImageModelAsFormDefault(persistedRegistry.defaults.textToImage);
@@ -964,6 +1004,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 无返回值。
    */
   const handleDiscardAndClose = (): void => {
+    pendingModelCatalogClearsRef.current.clear();
     setCloseConfirmOpen(false);
     onClose();
   };
@@ -1228,6 +1269,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                         selectPlaceholder={t('settings.selectRemoteModel')}
                         successMessage={t('settings.modelsFetched', { count: modelCatalogs[selectedImageModel.id]?.options.length || 0 })}
                         emptyMessage={t('settings.noRemoteModels')}
+                        staleMessage={t('settings.modelsCacheStale')}
                         onFetch={() => void handleFetchModels(selectedImageModel, selectedImageModel.protocol)}
                         onSelect={(modelId) => handleUpdateImageModel(selectedImageModel.id, { modelId, usesPresetModelId: false })}
                       />
@@ -1366,6 +1408,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                         selectPlaceholder={t('settings.selectRemoteModel')}
                         successMessage={t('settings.modelsFetched', { count: modelCatalogs[selectedVideoModel.id]?.options.length || 0 })}
                         emptyMessage={t('settings.noRemoteModels')}
+                        staleMessage={t('settings.modelsCacheStale')}
                         onFetch={() => void handleFetchModels(selectedVideoModel, 'openai')}
                         onSelect={(modelId) => handleUpdateVideoModel(selectedVideoModel.id, { modelId, usesPresetModelId: false })}
                       />
@@ -1464,6 +1507,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                         selectPlaceholder={t('settings.selectRemoteModel')}
                         successMessage={t('settings.modelsFetched', { count: modelCatalogs[selectedTextModel.id]?.options.length || 0 })}
                         emptyMessage={t('settings.noRemoteModels')}
+                        staleMessage={t('settings.modelsCacheStale')}
                         onFetch={() => void handleFetchModels(selectedTextModel, selectedTextModel.protocol)}
                         onSelect={(modelId) => handleUpdateTextModel(selectedTextModel.id, { modelId })}
                       />
