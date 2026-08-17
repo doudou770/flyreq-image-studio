@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Check, Copy, Download, ImagePlus, Maximize, RefreshCw, RotateCcw, Thermometer, Wand2, X } from 'lucide-react';
+import { AlertCircle, Check, Copy, Download, ImagePlus, Maximize, RefreshCw, RotateCcw, Wand2, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
@@ -15,10 +15,10 @@ import { useImageLazyLoad } from '@/hooks/useImageLazyLoad';
 import { getBatchImageMarker, getImageSrc, getStoredJobDisplayPrompt, type StoredJob } from '@/lib/job-store';
 import { resolveStoredImageRef, revokeBlobUrls } from '@/lib/image-downloader';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
-import { getModelDisplayName, getOutputSizeLabel, getSupportsTemperature } from '@/lib/model-capabilities';
 import { getEffectiveImagePrompt } from '@/lib/prompt-variants';
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
+import { JobGenerationMetadata } from '@/components/workspace/results/JobGenerationMetadata';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { useI18n } from '@/components/LanguageProvider';
 import { cn } from '@/lib/utils';
@@ -201,13 +201,11 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, largeThumb
     ? primaryImageResolution
     : null;
   const isMultiple = sourceImages.length > 1;
-  const supportsTemperature = getSupportsTemperature(job.model);
   const effectivePrompt = getEffectiveImagePrompt(job.prompt, job.promptVariants, job.effectivePrompt);
   const promptVariant = job.promptVariants?.[0]?.trim() || '';
   const hasPromptVariant = promptVariant.length > 0;
   const displayedPrompt = getStoredJobDisplayPrompt(job);
   const batchImageIndex = job.batchId && typeof job.batchIndex === 'number' ? job.batchIndex + 1 : null;
-  const outputSizeLabel = job.custom_size || getOutputSizeLabel(job.output_size);
   const requestedAtLabel = formatJobDateTime(job.created_at);
   const durationLabel = formatDuration(getJobDurationSeconds(job));
   const lazyLoad = useImageLazyLoad<HTMLDivElement>({
@@ -392,10 +390,10 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, largeThumb
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <div className="min-w-0 flex flex-1 items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
+              <div className="min-w-0 flex flex-1 items-start gap-1.5">
                 {batchImageIndex && <span className="shrink-0 text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
-                <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
+                <p className="min-h-[4.5rem] min-w-0 flex-1 break-words whitespace-pre-wrap text-base leading-6 text-foreground line-clamp-3">&quot;{displayedPrompt}&quot;</p>
                 {hasPromptVariant && (
                   <Popover>
                     <PopoverTrigger className="shrink-0 rounded border border-primary/30 px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/5">
@@ -466,15 +464,15 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, largeThumb
               </div>
             )}
 
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-              {getModelDisplayName(job.model)}
-              <span>·</span>
-              {outputSizeLabel}
-              {job.aspect_ratio !== 'auto' && <><span>·</span><span className="rounded border border-border bg-muted px-1.5 py-0.5 text-sm font-medium leading-none text-foreground">{job.aspect_ratio}</span></>}
-              {displayedPrimaryImageResolution && <><span>·</span><span title={t('task.actualResolution')}>{displayedPrimaryImageResolution.width}×{displayedPrimaryImageResolution.height}</span></>}
-              {supportsTemperature && <><span>·</span><Thermometer className="w-3 h-3" /><span>{job.temperature?.toFixed(2) ?? 1}</span></>}
-              {isMultiple && <><span>·</span><span className="font-medium text-primary">x{sourceImages.length}{job.parallelCount && job.parallelCount > sourceImages.length ? `/${job.parallelCount}` : ''}</span></>}
-            </p>
+            <JobGenerationMetadata
+              job={job}
+              trailing={(
+                <>
+                  {displayedPrimaryImageResolution && <><span>·</span><span title={t('task.actualResolution')}>{displayedPrimaryImageResolution.width}×{displayedPrimaryImageResolution.height}</span></>}
+                  {isMultiple && <><span>·</span><span className="font-medium text-primary">x{sourceImages.length}{job.parallelCount && job.parallelCount > sourceImages.length ? `/${job.parallelCount}` : ''}</span></>}
+                </>
+              )}
+            />
             {(requestedAtLabel || durationLabel) && (
               <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                 {requestedAtLabel && <span>{t('task.requestedAt', { time: requestedAtLabel })}</span>}

@@ -19,6 +19,7 @@ import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
 import { useImageModelDefaultRefresh } from '@/hooks/useImageModelDefaultRefresh';
 import { getEffectivePromptSubmissionShortcutLabels, usePromptSubmissionShortcut } from '@/hooks/usePromptSubmissionShortcut';
 import { PromptSubmissionShortcutMenu } from '@/components/PromptSubmissionShortcutMenu';
+import { useI18n } from '@/components/LanguageProvider';
 import { addTextAsset, type TextAsset } from '@/lib/asset-store';
 import { dispatchImageActionToast } from '@/lib/image-actions';
 import { streamPromptOptimize, type StreamPromptOptimizeHandle } from '@/lib/prompt-optimize-client';
@@ -77,6 +78,7 @@ const T2I_SETTINGS_KEY = LOCAL_STORAGE_KEYS.textToImageSettings;
 type T2ISettings = ImageFormSettings;
 
 export function TextToImageForm({ onSubmit, disabled = false, onDraftConsumed, onConfigureApiKey, initialData }: TextToImageFormProps) {
+  const { t } = useI18n();
   const [prompt, setPrompt] = useState('');
   const [queue, setQueue] = useState<QueuedPrompt[]>([]);
 
@@ -107,7 +109,10 @@ export function TextToImageForm({ onSubmit, disabled = false, onDraftConsumed, o
   const { enabled: promptOptimizeEnabled } = usePromptOptimizeSetting();
   const imageModelDefaultRefreshVersion = useImageModelDefaultRefresh();
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
-  const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport);
+  const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport, {
+    submission: t('workbench.mobileSend'),
+    newline: t('workbench.mobileNewline'),
+  });
 
   const handleOptimize = useCallback(() => {
     if (!prompt.trim()) return;

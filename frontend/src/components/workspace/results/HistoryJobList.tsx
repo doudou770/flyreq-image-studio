@@ -2,14 +2,15 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Check, Copy, Loader2, RefreshCw, RotateCcw, Thermometer, X } from 'lucide-react';
+import { Check, Copy, Loader2, RefreshCw, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getBatchImageMarker, getStoredJobDisplayPrompt, type Mode, type StoredJob } from '@/lib/job-store';
 import { cn } from '@/lib/utils';
 import { formatDuration, formatJobDateTime, getJobDurationSeconds } from '@/lib/job-time';
-import { getModelDisplayName, getOutputSizeLabel, getSupportsTemperature } from '@/lib/model-capabilities';
+import { getModelDisplayName } from '@/lib/model-capabilities';
 import { getEffectiveImagePrompt } from '@/lib/prompt-variants';
 import { CompletedJobCard } from '@/components/workspace/results/CompletedJobCard';
+import { JobGenerationMetadata } from '@/components/workspace/results/JobGenerationMetadata';
 import { JobSseBadge } from '@/components/workspace/results/JobSseBadge';
 import { useI18n } from '@/components/LanguageProvider';
 import { dispatchImageActionToast } from '@/lib/image-actions';
@@ -59,27 +60,6 @@ async function copyJobEffectivePrompt(
     return false;
   }
 }
-
-/**
- * 展示等待或失败任务的已选生成规格，保持与完成任务的模型、档位和比例信息一致。
- * @param props 任务数据。
- * @param props.job 需要展示生成规格的图片任务。
- * @returns 任务规格信息行。
- */
-const JobGenerationMetadata = memo(function JobGenerationMetadata({ job }: { job: StoredJob }) {
-  const outputSizeLabel = job.custom_size || getOutputSizeLabel(job.output_size);
-  const supportsTemperature = getSupportsTemperature(job.model);
-
-  return (
-    <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-      <span>{getModelDisplayName(job.model)}</span>
-      <span>·</span>
-      <span>{outputSizeLabel}</span>
-      {job.aspect_ratio !== 'auto' && <><span>·</span><span className="rounded border border-border bg-muted px-1.5 py-0.5 text-sm font-medium leading-none text-foreground">{job.aspect_ratio}</span></>}
-      {supportsTemperature && <><span>·</span><Thermometer className="w-3 h-3" /><span>{job.temperature?.toFixed(2) ?? 1}</span></>}
-    </p>
-  );
-});
 
 /**
  * 为非完成任务提供复制实际提示词的图标按钮，并在成功后短暂显示完成状态。
@@ -156,9 +136,9 @@ const WaitingJobCard = memo(function WaitingJobCard({
           </div>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-start gap-1.5">
             {batchImageIndex && <span className="shrink-0 text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
-            <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
+            <p className="min-h-[4.5rem] min-w-0 flex-1 break-words whitespace-pre-wrap text-base leading-6 text-foreground line-clamp-3">&quot;{displayedPrompt}&quot;</p>
             <JobSseBadge job={job} />
             <JobPromptCopyButton job={job} />
           </div>
@@ -444,8 +424,8 @@ export function HistoryJobList({
           <div className="flex items-start gap-3">
             <div className="min-w-0 space-y-1">
               {batchImageIndex && <span className="inline-flex text-sm font-medium text-primary" title={t('task.batchImage', { index: batchImageIndex })} aria-label={t('task.batchImage', { index: batchImageIndex })}>{getBatchImageMarker(batchImageIndex)}</span>}
-              <div className="flex min-w-0 items-center gap-1.5">
-                <p className="min-w-0 flex-1 truncate text-base text-foreground">&quot;{displayedPrompt}&quot;</p>
+              <div className="flex min-w-0 items-start gap-1.5">
+                <p className="min-h-[4.5rem] min-w-0 flex-1 break-words whitespace-pre-wrap text-base leading-6 text-foreground line-clamp-3">&quot;{displayedPrompt}&quot;</p>
                 <JobPromptCopyButton job={job} />
               </div>
               <p className="max-h-20 overflow-y-auto text-sm text-destructive">{job.error || t('history.failed')}</p>

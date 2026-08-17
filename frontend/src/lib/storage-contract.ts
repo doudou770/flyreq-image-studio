@@ -53,6 +53,7 @@ export const STORAGE_CONTRACT_VERSION = 1;
 
 export const LOCAL_STORAGE_KEYS = {
   modelRegistry: 'flyreq-model-registry',
+  modelCatalog: 'flyreq-model-catalog',
   imageJobs: 'flyreq-jobs',
   imageWorkbenchSettings: 'flyreq-image-generation-settings',
   textToImageSettings: 'flyreq-t2i-settings',
@@ -78,6 +79,7 @@ export const LOCAL_STORAGE_KEYS = {
 
 export const LOCAL_STORAGE_CONTRACT: readonly LocalStorageContractEntry[] = [
   { key: LOCAL_STORAGE_KEYS.modelRegistry, owner: 'models', backup: true },
+  { key: LOCAL_STORAGE_KEYS.modelCatalog, owner: 'models', backup: true },
   { key: LOCAL_STORAGE_KEYS.imageJobs, owner: 'image-generation', backup: true },
   { key: LOCAL_STORAGE_KEYS.imageWorkbenchSettings, owner: 'image-generation', backup: true },
   { key: LOCAL_STORAGE_KEYS.textToImageSettings, owner: 'image-generation', backup: true },

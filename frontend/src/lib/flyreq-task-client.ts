@@ -360,7 +360,13 @@ export async function checkModelsAvailability(
   }
 }
 
-export function resolveImageTaskProvider(modelId: string): { apiKey: string; baseUrl: string; protocol: ProviderProtocol; modelId: string; imageApiFlavor?: ImageApiFlavor; streamImages?: boolean; supportsTemperature?: boolean } {
+/**
+ * 根据渠道配置解析请求凭据，并允许工作台覆盖本次请求使用的远端模型 ID。
+ * @param modelId 图片渠道的内部配置 ID。
+ * @param selectedModelId 工作台选择的远端模型 ID；为空时回退渠道默认模型。
+ * @returns 当前请求需要的协议、凭据、模型和渠道能力标识。
+ */
+export function resolveImageTaskProvider(modelId: string, selectedModelId?: string): { apiKey: string; baseUrl: string; protocol: ProviderProtocol; modelId: string; imageApiFlavor?: ImageApiFlavor; streamImages?: boolean; supportsTemperature?: boolean } {
   const registry = loadRegistry();
   const model = getImageModelById(registry, modelId);
   if (!model) throw new Error(`未找到图片模型配置: ${modelId}`);
@@ -369,7 +375,7 @@ export function resolveImageTaskProvider(modelId: string): { apiKey: string; bas
     apiKey: model.apiKey,
     baseUrl: normalizedBaseUrl,
     protocol: model.protocol,
-    modelId: getResolvedImageModelId(model),
+    modelId: selectedModelId?.trim() || getResolvedImageModelId(model),
     imageApiFlavor: getImageApiFlavor(model),
     streamImages: model.protocol === 'openai' ? Boolean(model.streamImages) : false,
     supportsTemperature: model.protocol === 'google' && model.supportsTemperature === true,

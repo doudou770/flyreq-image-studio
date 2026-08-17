@@ -11,6 +11,12 @@ let fallbackPromptSubmissionShortcut: PromptSubmissionShortcut = DEFAULT_PROMPT_
 
 export type PromptSubmissionShortcut = 'enter' | 'shift-enter';
 
+/** 窄屏提示词输入区需要展示的本地化快捷键文案。 */
+export interface PromptSubmissionShortcutMobileLabels {
+  submission: string;
+  newline: string;
+}
+
 /**
  * 获取指定发送快捷键对应的发送和换行按键文案。
  * @param shortcut 当前发送快捷键。
@@ -26,11 +32,16 @@ export function getPromptSubmissionShortcutLabels(shortcut: PromptSubmissionShor
  * 获取当前视口下实际生效的发送和换行提示文案。
  * @param shortcut 用户保存的桌面发送快捷键。
  * @param isSmallViewport 当前视口是否为窄屏。
+ * @param mobileLabels 窄屏场景下随界面语言变化的提示文案。
  * @returns 当前视口实际可用的发送与换行提示文案。
  */
-export function getEffectivePromptSubmissionShortcutLabels(shortcut: PromptSubmissionShortcut, isSmallViewport: boolean) {
+export function getEffectivePromptSubmissionShortcutLabels(
+  shortcut: PromptSubmissionShortcut,
+  isSmallViewport: boolean,
+  mobileLabels: PromptSubmissionShortcutMobileLabels,
+) {
   if (isSmallViewport) {
-    return { submission: '点击发送按钮', newline: 'Enter 或 Shift + Enter' };
+    return mobileLabels;
   }
   return getPromptSubmissionShortcutLabels(shortcut);
 }

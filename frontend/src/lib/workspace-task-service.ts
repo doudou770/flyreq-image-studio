@@ -27,6 +27,8 @@ export interface TextToImageSubmitInput {
   aspectRatio: AspectRatio;
   temperature: number;
   model: string;
+  /** 工作台选择的远端模型 ID；旧调用方缺失时使用渠道默认模型。 */
+  modelId?: string;
   gptImageQuality: GptImageQuality;
   gptImageStyle: GptImageStyle;
   gptImageBackground: GptImageBackground;
@@ -44,6 +46,8 @@ export interface ImageToImageSubmitInput {
   aspectRatio: AspectRatio;
   temperature: number;
   model: string;
+  /** 工作台选择的远端模型 ID；旧调用方缺失时使用渠道默认模型。 */
+  modelId?: string;
   gptImageQuality: GptImageQuality;
   gptImageStyle: GptImageStyle;
   gptImageBackground: GptImageBackground;
@@ -181,6 +185,7 @@ function buildImageReferences(files: ImageToImageSubmitInput['files']): ImageRef
  * @param batchId 多图提交的稳定批次标识，单图任务不设置。
  * @param batchCreatedAt 多图提交共用的提交时间，防止服务端时间回写拆散批次。
  * @param batchIndex 当前图片在多图提交中的从零开始序号，单图任务不设置。
+ * @param remoteModelId 本次提交选择的远端模型 ID。
  * @returns 已初始化、等待关联服务端任务的本地任务对象。
  */
 function createBaseJob(
@@ -201,6 +206,7 @@ function createBaseJob(
   batchId?: string,
   batchCreatedAt?: string,
   batchIndex?: number,
+  remoteModelId?: string,
 ): StoredJob {
   const advancedParams = getGptImageAdvancedParamsForModel(model as ModelId, {
     quality: gptImageQuality,
@@ -220,6 +226,7 @@ function createBaseJob(
     temperature,
     aspect_ratio: aspectRatio,
     model,
+    ...(remoteModelId ? { remoteModelId } : {}),
     gptImageQuality: advancedParams.quality,
     gptImageStyle: advancedParams.style,
     gptImageBackground: advancedParams.background,
@@ -461,7 +468,7 @@ export async function submitTextToImage(
   onError: (message: string) => void
 ): Promise<void> {
   try {
-    const provider = resolveImageTaskProvider(input.model);
+    const provider = resolveImageTaskProvider(input.model, input.modelId);
     const apiKey = provider.apiKey;
 
     if (!apiKey) {
@@ -492,6 +499,7 @@ export async function submitTextToImage(
           batchId,
           batchCreatedAt,
           input.parallelCount > 1 ? imageIndex : undefined,
+          input.modelId,
         );
       });
       [...jobs].reverse().forEach(job => actions.addJob(job));
@@ -555,7 +563,7 @@ export async function submitImageToImage(
   onError: (message: string) => void
 ): Promise<void> {
   try {
-    const provider = resolveImageTaskProvider(input.model);
+    const provider = resolveImageTaskProvider(input.model, input.modelId);
     const apiKey = provider.apiKey;
 
     if (!apiKey) {
@@ -592,6 +600,7 @@ export async function submitImageToImage(
         batchId,
         batchCreatedAt,
         input.parallelCount > 1 ? imageIndex : undefined,
+        input.modelId,
       );
     });
     [...jobs].reverse().forEach(job => actions.addJob(job));

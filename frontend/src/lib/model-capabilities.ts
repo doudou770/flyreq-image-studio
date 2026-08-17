@@ -170,6 +170,8 @@ export interface RetryData {
   aspectRatio: AspectRatio;
   customSize?: string;
   model: ModelId;
+  /** 历史任务实际使用的远端模型 ID；旧任务缺失时回退渠道默认模型。 */
+  remoteModelId?: string;
   parallelCount: ParallelCount;
   promptVariants?: string[];
   gptImageQuality: GptImageQuality;
@@ -532,6 +534,7 @@ export function getCompatibleRetryData(job: StoredJob): RetryData {
     mode: job.mode,
     prompt: getEffectiveImagePrompt(job.prompt, job.promptVariants, job.effectivePrompt),
     model,
+    ...(job.remoteModelId ? { remoteModelId: job.remoteModelId } : {}),
     outputSize,
     aspectRatio,
     customSize,

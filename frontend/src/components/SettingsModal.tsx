@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Check,
   CheckCircle2,
+  ChevronsUpDown,
   Database,
   Download,
   ExternalLink,
@@ -20,6 +22,7 @@ import {
   Video,
   XCircle,
 } from 'lucide-react';
+import { Combobox } from '@base-ui/react/combobox';
 import {
   Dialog,
   DialogContent,
@@ -77,6 +80,7 @@ import { getOutputSizeLabel } from '@/lib/model-capabilities';
 import { getVideoProtocolConfig } from '@/lib/video-config';
 import { useBranding } from '@/components/BrandProvider';
 import { useI18n } from '@/components/LanguageProvider';
+import { clearModelCatalogCache, getModelCatalogCache, isModelCatalogCacheStale, loadModelCatalogCache, pruneModelCatalogCache, saveModelCatalogCache } from '@/lib/model-catalog-cache';
 
 type ImageModelKeyGuide = typeof IMAGE_MODEL_KEY_GUIDE;
 
@@ -131,46 +135,91 @@ interface ModelCatalogState {
   options: RemoteModelOption[];
   error: string | null;
   loaded: boolean;
+  fetchedAt?: number;
 }
 
 interface ModelCatalogControlsProps {
   state?: ModelCatalogState;
+  catalogId: string;
+  modelId: string;
+  modelIdLabel: string;
+  modelIdPlaceholder?: string;
+  modelIdHint?: string;
   fetchLabel: string;
   fetchingLabel: string;
-  remoteModelLabel: string;
-  selectPlaceholder: string;
   successMessage: string;
   emptyMessage: string;
+  staleMessage: string;
   onFetch: () => void;
-  onSelect: (modelId: string) => void;
+  onModelIdChange: (modelId: string) => void;
 }
 
 /**
- * 渲染单个模型配置的远端模型获取按钮、候选列表和请求结果。
- * @param props 按钮文案、目录状态及获取和选择回调。
+ * 渲染单个模型配置的模型 ID 输入、远端模型获取和候选建议。
+ * @param props 模型目录标识、模型 ID、按钮文案、目录状态及编辑和获取回调。
  * @returns 可复用于图片、视频和文本模型的目录选择控件。
  */
-function ModelCatalogControls({ state, fetchLabel, fetchingLabel, remoteModelLabel, selectPlaceholder, successMessage, emptyMessage, onFetch, onSelect }: ModelCatalogControlsProps) {
+function ModelCatalogControls({ state, catalogId, modelId, modelIdLabel, modelIdPlaceholder, modelIdHint, fetchLabel, fetchingLabel, successMessage, emptyMessage, staleMessage, onFetch, onModelIdChange }: ModelCatalogControlsProps) {
+  const modelListId = `model-catalog-${catalogId}`;
+  const catalogOptions = useMemo(() => {
+    const options = [...(state?.options || [])];
+    if (modelId.trim() && !options.some(option => option.id === modelId)) {
+      options.unshift({ id: modelId, name: modelId });
+    }
+    return options;
+  }, [modelId, state?.options]);
+  const selectedOption = catalogOptions.find(option => option.id === modelId) || null;
+  const optionLabel = (option: RemoteModelOption) => option.name === option.id ? option.id : `${option.name} (${option.id})`;
+
   return (
     <div className="space-y-2">
-      <Button type="button" variant="outline" size="sm" className="gap-2" disabled={state?.loading} onClick={onFetch}>
-        <RefreshCw className={`size-4 ${state?.loading ? 'animate-spin' : ''}`} />
-        {state?.loading ? fetchingLabel : fetchLabel}
-      </Button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <label className="text-xs text-muted-foreground">{modelIdLabel}</label>
+          <Combobox.Root
+            id={modelListId}
+            items={catalogOptions}
+            value={selectedOption}
+            onValueChange={(option) => {
+              if (option) onModelIdChange(option.id);
+            }}
+            itemToStringLabel={(option) => option ? optionLabel(option) : ''}
+            itemToStringValue={(option) => option?.id || ''}
+          >
+            <div className="relative">
+              <Combobox.Input aria-label={modelIdLabel} placeholder={modelIdPlaceholder} className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 pr-9 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30" />
+              <Combobox.Trigger aria-label={modelIdLabel} className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
+                <ChevronsUpDown className="size-3.5" />
+              </Combobox.Trigger>
+            </div>
+            <Combobox.Portal>
+              <Combobox.Positioner sideOffset={4} className="z-[70] outline-none">
+                <Combobox.Popup className="max-h-[min(24rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none">
+                  <Combobox.List>
+                    {(option: RemoteModelOption, index: number) => (
+                      <Combobox.Item key={option.id} value={option} index={index} className="relative flex cursor-pointer items-center gap-2 rounded-md py-1.5 pr-8 pl-2.5 text-sm outline-none select-none data-[highlighted]:bg-muted">
+                        <span className="truncate">{optionLabel(option)}</span>
+                        <Combobox.ItemIndicator className="absolute right-2 flex items-center text-primary">
+                          <Check className="size-4" />
+                        </Combobox.ItemIndicator>
+                      </Combobox.Item>
+                    )}
+                  </Combobox.List>
+                </Combobox.Popup>
+              </Combobox.Positioner>
+            </Combobox.Portal>
+          </Combobox.Root>
+        </div>
+        <Button type="button" variant="outline" size="default" className="shrink-0 gap-2 sm:mb-1.5" disabled={state?.loading} onClick={onFetch}>
+          <RefreshCw className={`size-4 ${state?.loading ? 'animate-spin' : ''}`} />
+          {state?.loading ? fetchingLabel : fetchLabel}
+        </Button>
+      </div>
+      {modelIdHint && <p className="text-xs text-muted-foreground">{modelIdHint}</p>}
       {state?.error && <p className="text-xs text-destructive">{state.error}</p>}
       {state?.loaded && state.options.length === 0 && <p className="text-xs text-muted-foreground">{emptyMessage}</p>}
-      {state && state.options.length > 0 && (
-        <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">{remoteModelLabel}</label>
-          <Select
-            value=""
-            placeholder={selectPlaceholder}
-            onValueChange={onSelect}
-            options={state.options.map(option => ({ value: option.id, label: option.name === option.id ? option.id : `${option.name} (${option.id})` }))}
-          />
-          <p className="text-xs text-muted-foreground">{successMessage}</p>
-        </div>
-      )}
+      {state?.fetchedAt && isModelCatalogCacheStale(state.fetchedAt) && <p className="text-xs text-amber-600 dark:text-amber-400">{staleMessage}</p>}
+      {state && state.options.length > 0 && <p className="text-xs text-muted-foreground">{successMessage}</p>}
     </div>
   );
 }
@@ -519,6 +568,8 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
   const savedStateTimerRef = useRef<number | null>(null);
+  const pendingModelCatalogClearsRef = useRef<Set<string>>(new Set());
+  const modelCatalogRequestVersionsRef = useRef<Map<string, number>>(new Map());
 
   const [backupProgress, setBackupProgress] = useState<BackupProgressType>({ percent: 0, message: '' });
   const [isBackupActive, setIsBackupActive] = useState(false);
@@ -535,6 +586,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
       savedStateTimerRef.current = null;
     }
     let cancelled = false;
+    pendingModelCatalogClearsRef.current.clear();
     queueMicrotask(() => {
       if (cancelled) return;
       setImageModels(registry.imageModels.map(cloneImageModel));
@@ -549,7 +601,25 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
       setExternalConfigNotice(null);
       setModelStatuses(null);
       setModelCheckError(null);
-      setModelCatalogs({});
+      const cachedCatalogs = loadModelCatalogCache();
+      const catalogSources = new Map<string, { protocol: string; baseUrl: string }>();
+      registry.imageModels.forEach(model => catalogSources.set(model.id, { protocol: model.protocol, baseUrl: model.baseUrl }));
+      registry.textModels.forEach(model => catalogSources.set(model.id, { protocol: model.protocol, baseUrl: model.baseUrl }));
+      registry.videoModels.forEach(model => catalogSources.set(model.id, { protocol: 'openai', baseUrl: model.baseUrl }));
+      const restoredCatalogs = Object.keys(cachedCatalogs).flatMap(channelId => {
+        const source = catalogSources.get(channelId);
+        const matchingEntry = source ? getModelCatalogCache(channelId, source) : undefined;
+        if (!matchingEntry) return [];
+        return [[channelId, {
+          loading: false,
+          options: matchingEntry.options,
+          error: null,
+          loaded: true,
+          fetchedAt: matchingEntry.fetchedAt,
+        }] as const];
+      });
+      setModelCatalogs(Object.fromEntries(restoredCatalogs));
+      pruneModelCatalogCache([...registry.imageModels, ...registry.videoModels, ...registry.textModels].map(model => model.id));
       setBackupError(null);
       setBackupSuccess(null);
       setPromptOptimizeEnabledState(optimizeEnabled);
@@ -701,6 +771,9 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 无返回值；状态不存在时保持当前目录集合不变。
    */
   const clearModelCatalog = (modelId: string): void => {
+    const nextRequestVersion = (modelCatalogRequestVersionsRef.current.get(modelId) || 0) + 1;
+    modelCatalogRequestVersionsRef.current.set(modelId, nextRequestVersion);
+    pendingModelCatalogClearsRef.current.add(modelId);
     setModelCatalogs(previous => {
       if (!previous[modelId]) return previous;
       const next = { ...previous };
@@ -716,14 +789,21 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 请求完成后更新对应模型的目录状态，无直接返回值。
    */
   const handleFetchModels = async (model: { id: string; baseUrl: string; apiKey: string }, protocol: ProviderProtocol): Promise<void> => {
+    // 每个渠道独立递增请求版本，来源字段变化时旧响应会因版本不匹配而被丢弃。
+    const requestVersion = (modelCatalogRequestVersionsRef.current.get(model.id) || 0) + 1;
+    modelCatalogRequestVersionsRef.current.set(model.id, requestVersion);
     setModelCatalogs(previous => ({
       ...previous,
       [model.id]: { loading: true, options: previous[model.id]?.options || [], error: null, loaded: false },
     }));
     try {
       const options = await fetchRemoteModels({ baseUrl: model.baseUrl, apiKey: model.apiKey, protocol });
-      setModelCatalogs(previous => ({ ...previous, [model.id]: { loading: false, options, error: null, loaded: true } }));
+      if (modelCatalogRequestVersionsRef.current.get(model.id) !== requestVersion) return;
+      saveModelCatalogCache({ channelId: model.id, protocol, baseUrl: model.baseUrl, options });
+      pendingModelCatalogClearsRef.current.delete(model.id);
+      setModelCatalogs(previous => ({ ...previous, [model.id]: { loading: false, options, error: null, loaded: true, fetchedAt: Date.now() } }));
     } catch (requestError) {
+      if (modelCatalogRequestVersionsRef.current.get(model.id) !== requestVersion) return;
       setModelCatalogs(previous => ({
         ...previous,
         [model.id]: {
@@ -790,6 +870,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   };
 
   const handleDeleteImageModel = (id: string) => {
+    clearModelCatalog(id);
     const nextModels = imageModels.filter((model) => model.id !== id);
     setImageModels(nextModels);
     setDefaults((prev) => ({
@@ -848,6 +929,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 无返回值。
    */
   const handleDeleteVideoModel = (id: string) => {
+    clearModelCatalog(id);
     const nextModels = videoModels.filter(model => model.id !== id);
     setVideoModels(nextModels);
     setDefaults(previous => ({ ...previous, videoGeneration: previous.videoGeneration === id ? '' : previous.videoGeneration }));
@@ -860,6 +942,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   };
 
   const handleDeleteTextModel = (id: string) => {
+    clearModelCatalog(id);
     const nextModels = textModels.filter((model) => model.id !== id);
     setTextModels(nextModels);
     setDefaults((prev) => ({
@@ -898,6 +981,8 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
 
     // 第二步持久化全部草稿，再同步依赖注册表的工作台缓存与跨组件事件。
     saveRegistry(registry);
+    for (const modelId of pendingModelCatalogClearsRef.current) clearModelCatalogCache(modelId);
+    pendingModelCatalogClearsRef.current.clear();
     const persistedRegistry = loadRegistry();
     if (hasNoCompleteImageModelBeforeSave && persistedRegistry.defaults.textToImage) {
       saveFirstImageModelAsFormDefault(persistedRegistry.defaults.textToImage);
@@ -964,6 +1049,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
    * @returns 无返回值。
    */
   const handleDiscardAndClose = (): void => {
+    pendingModelCatalogClearsRef.current.clear();
     setCloseConfirmOpen(false);
     onClose();
   };
@@ -1148,10 +1234,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                       onClick={() => setSelectedImageModelId(model.id)}
                       className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedImageModelId === model.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate font-medium">{model.name || t('settings.unnamedModel')}</span>
-                        {[defaults.textToImage, defaults.imageToImage].includes(model.id) && <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary"><CheckCircle2 className="size-3" />{t('settings.currentDefault')}</span>}
-                      </div>
+                      <span className="block truncate font-medium">{model.name || t('settings.unnamedModel')}</span>
                       <div className="text-xs text-muted-foreground">{isCompleteImageModel(model) ? t('settings.configurationComplete') : t('settings.configurationIncomplete')}</div>
                     </button>
                   ))}
@@ -1183,17 +1266,22 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                       <label className="text-xs text-muted-foreground">{t('settings.displayName')}</label>
                       <Input value={selectedImageModel.name} onChange={(event) => handleUpdateImageModel(selectedImageModel.id, { name: event.target.value })} />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">{t('settings.modelId')}</label>
-                      <Input
-                        value={selectedImageModel.modelId}
-                        placeholder={BUILTIN_IMAGE_PRESETS[selectedImageModel.builtinPreset].modelId}
-                        onChange={(event) => handleUpdateImageModel(selectedImageModel.id, {
-                          modelId: event.target.value,
-                          usesPresetModelId: !event.target.value.trim(),
-                        })}
+                    <div className="md:col-span-2">
+                      <ModelCatalogControls
+                        state={modelCatalogs[selectedImageModel.id]}
+                        catalogId={selectedImageModel.id}
+                        modelId={selectedImageModel.modelId}
+                        modelIdLabel={t('settings.modelId')}
+                        modelIdPlaceholder={BUILTIN_IMAGE_PRESETS[selectedImageModel.builtinPreset].modelId}
+                        modelIdHint={t('settings.modelIdPresetHint')}
+                        fetchLabel={t('settings.fetchModels')}
+                        fetchingLabel={t('settings.fetchingModels')}
+                        successMessage={t('settings.modelsFetched', { count: modelCatalogs[selectedImageModel.id]?.options.length || 0 })}
+                        emptyMessage={t('settings.noRemoteModels')}
+                        staleMessage={t('settings.modelsCacheStale')}
+                        onFetch={() => void handleFetchModels(selectedImageModel, selectedImageModel.protocol)}
+                        onModelIdChange={(modelId) => handleUpdateImageModel(selectedImageModel.id, { modelId, usesPresetModelId: !modelId.trim() })}
                       />
-                      <p className="text-xs text-muted-foreground">{t('settings.modelIdPresetHint')}</p>
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">{t('settings.baseUrl')}</label>
@@ -1218,19 +1306,6 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                           {showImageApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
-                    </div>
-                    <div className="md:col-span-2">
-                      <ModelCatalogControls
-                        state={modelCatalogs[selectedImageModel.id]}
-                        fetchLabel={t('settings.fetchModels')}
-                        fetchingLabel={t('settings.fetchingModels')}
-                        remoteModelLabel={t('settings.remoteModel')}
-                        selectPlaceholder={t('settings.selectRemoteModel')}
-                        successMessage={t('settings.modelsFetched', { count: modelCatalogs[selectedImageModel.id]?.options.length || 0 })}
-                        emptyMessage={t('settings.noRemoteModels')}
-                        onFetch={() => void handleFetchModels(selectedImageModel, selectedImageModel.protocol)}
-                        onSelect={(modelId) => handleUpdateImageModel(selectedImageModel.id, { modelId, usesPresetModelId: false })}
-                      />
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">{t('settings.maxReferenceImages')}</label>
@@ -1315,10 +1390,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                     const complete = isCompleteVideoModel(model);
                     return (
                       <button key={model.id} type="button" onClick={() => setSelectedVideoModelId(model.id)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedVideoModelId === model.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate font-medium">{model.name || t('settings.unnamedModel')}</span>
-                          {defaults.videoGeneration === model.id && <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary"><CheckCircle2 className="size-3" />{t('settings.currentDefault')}</span>}
-                        </div>
+                        <span className="block truncate font-medium">{model.name || t('settings.unnamedModel')}</span>
                         <div className="text-xs text-muted-foreground">{complete ? t('settings.configurationComplete') : t('settings.configurationIncomplete')}</div>
                       </button>
                     );
@@ -1346,28 +1418,23 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                       {selectedVideoModel.protocol === 'legacy-openai-video' && <p className="text-xs text-amber-600 dark:text-amber-400">{t('settings.legacyVideoProtocolDescription')}</p>}
                     </div>
                     <div className="space-y-2"><label className="text-xs text-muted-foreground">{t('settings.displayName')}</label><Input value={selectedVideoModel.name} onChange={event => handleUpdateVideoModel(selectedVideoModel.id, { name: event.target.value })} /></div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">{t('settings.modelId')}</label>
-                      <Input
-                        value={selectedVideoModel.modelId}
-                        placeholder={selectedVideoModel.presetModelId || 'grok-imagine-video'}
-                        onChange={event => handleUpdateVideoModel(selectedVideoModel.id, { modelId: event.target.value, usesPresetModelId: !event.target.value.trim() })}
-                      />
-                      <p className="text-xs text-muted-foreground">{t('settings.modelIdPresetHint')}</p>
-                    </div>
                     <div className="space-y-2"><label className="text-xs text-muted-foreground">{t('settings.baseUrl')}</label><Input value={selectedVideoModel.baseUrl} onChange={event => handleUpdateVideoModel(selectedVideoModel.id, { baseUrl: event.target.value })} /></div>
                     <div className="space-y-2 md:col-span-2"><label className="text-xs text-muted-foreground">{t('settings.apiKey')}</label><div className="relative"><Input type={showVideoApiKey ? 'text' : 'password'} value={selectedVideoModel.apiKey} onChange={event => handleUpdateVideoModel(selectedVideoModel.id, { apiKey: event.target.value })} className="pr-9" /><button type="button" onClick={() => setShowVideoApiKey(value => !value)} className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted" aria-label={t('settings.apiKey')}>{showVideoApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div></div>
                     <div className="md:col-span-2">
                       <ModelCatalogControls
                         state={modelCatalogs[selectedVideoModel.id]}
+                        catalogId={selectedVideoModel.id}
+                        modelId={selectedVideoModel.modelId}
+                        modelIdLabel={t('settings.modelId')}
+                        modelIdPlaceholder={selectedVideoModel.presetModelId || 'grok-imagine-video'}
+                        modelIdHint={t('settings.modelIdPresetHint')}
                         fetchLabel={t('settings.fetchModels')}
                         fetchingLabel={t('settings.fetchingModels')}
-                        remoteModelLabel={t('settings.remoteModel')}
-                        selectPlaceholder={t('settings.selectRemoteModel')}
                         successMessage={t('settings.modelsFetched', { count: modelCatalogs[selectedVideoModel.id]?.options.length || 0 })}
                         emptyMessage={t('settings.noRemoteModels')}
+                        staleMessage={t('settings.modelsCacheStale')}
                         onFetch={() => void handleFetchModels(selectedVideoModel, 'openai')}
-                        onSelect={(modelId) => handleUpdateVideoModel(selectedVideoModel.id, { modelId, usesPresetModelId: false })}
+                        onModelIdChange={(modelId) => handleUpdateVideoModel(selectedVideoModel.id, { modelId, usesPresetModelId: !modelId.trim() })}
                       />
                     </div>
                     <div className="flex justify-end md:col-span-2"><Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={() => handleDeleteVideoModel(selectedVideoModel.id)}><Trash2 className="size-4" />{t('settings.deleteModel')}</Button></div>
@@ -1397,10 +1464,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                       onClick={() => setSelectedTextModelId(model.id)}
                       className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedTextModelId === model.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate font-medium">{model.name || t('settings.unnamedModel')}</span>
-                        {[defaults.reversePrompt, defaults.agent, defaults.promptOptimize, defaults.imageDescribe].includes(model.id) && <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary"><CheckCircle2 className="size-3" />{t('settings.currentDefault')}</span>}
-                      </div>
+                      <span className="block truncate font-medium">{model.name || t('settings.unnamedModel')}</span>
                       <div className="text-xs text-muted-foreground">{isCompleteTextModel(model) ? t('settings.configurationComplete') : t('settings.configurationIncomplete')}</div>
                     </button>
                   ))}
@@ -1426,10 +1490,6 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">{t('settings.displayName')}</label>
                       <Input value={selectedTextModel.name} onChange={(event) => handleUpdateTextModel(selectedTextModel.id, { name: event.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">{t('settings.modelId')}</label>
-                      <Input value={selectedTextModel.modelId} onChange={(event) => handleUpdateTextModel(selectedTextModel.id, { modelId: event.target.value })} />
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">{t('settings.baseUrl')}</label>
@@ -1458,14 +1518,16 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                     <div className="md:col-span-2">
                       <ModelCatalogControls
                         state={modelCatalogs[selectedTextModel.id]}
+                        catalogId={selectedTextModel.id}
+                        modelId={selectedTextModel.modelId}
+                        modelIdLabel={t('settings.modelId')}
                         fetchLabel={t('settings.fetchModels')}
                         fetchingLabel={t('settings.fetchingModels')}
-                        remoteModelLabel={t('settings.remoteModel')}
-                        selectPlaceholder={t('settings.selectRemoteModel')}
                         successMessage={t('settings.modelsFetched', { count: modelCatalogs[selectedTextModel.id]?.options.length || 0 })}
                         emptyMessage={t('settings.noRemoteModels')}
+                        staleMessage={t('settings.modelsCacheStale')}
                         onFetch={() => void handleFetchModels(selectedTextModel, selectedTextModel.protocol)}
-                        onSelect={(modelId) => handleUpdateTextModel(selectedTextModel.id, { modelId })}
+                        onModelIdChange={(modelId) => handleUpdateTextModel(selectedTextModel.id, { modelId })}
                       />
                     </div>
                     <div className="space-y-2 md:col-span-2">

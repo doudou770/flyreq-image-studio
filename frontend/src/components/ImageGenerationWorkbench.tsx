@@ -23,7 +23,8 @@ import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
 import { requireDefaultConfiguredTextModel } from '@/lib/model-endpoints';
 import { addTextAsset, getAssetBlob, type ImageAsset, type TextAsset } from '@/lib/asset-store';
 import { getDefaultModelId, MODEL_IMAGE_LIMITS, MODEL_OPTIONS, type ModelId } from '@/lib/gemini-config';
-import { updateRegistryDefaults } from '@/lib/flyreq-models';
+import { getImageModelById, getResolvedImageModelId, loadRegistry, updateRegistryDefaults } from '@/lib/flyreq-models';
+import { getModelCatalogCache } from '@/lib/model-catalog-cache';
 import {
   DEFAULT_GPT_IMAGE_ADVANCED_PARAMS,
   getAspectRatioOptions,
@@ -77,8 +78,10 @@ interface ImageGenerationWorkbenchProps {
   onConfigureApiKey?: () => void;
   initialData?: {
     prompt?: string;
+    channelId?: ModelId;
     outputSize?: OutputSize;
     customSize?: string;
+    modelId?: string;
     customSizeAlignMultiple?: boolean;
     aspectRatio?: AspectRatio;
     temperature?: number;
@@ -119,6 +122,24 @@ function normalizePromptVariants(value: unknown): string[] {
     .map(item => (typeof item === 'string' ? item : ''));
 }
 
+/**
+ * 根据渠道缓存和配置默认值确定工作台应展示的远端模型 ID。
+ * @param channelId 当前图片渠道的内部配置 ID。
+ * @param candidate 初始数据或历史任务携带的远端模型 ID。
+ * @returns 缓存中可用的模型 ID，或渠道默认模型 ID。
+ */
+function getInitialRemoteModelId(channelId: ModelId, candidate?: string): string {
+  const normalizedCandidate = candidate?.trim();
+  if (normalizedCandidate) return normalizedCandidate;
+  const channel = getImageModelById(loadRegistry(), channelId);
+  const configuredModelId = channel ? getResolvedImageModelId(channel) : '';
+  const catalog = getModelCatalogCache(channelId, channel ? { protocol: channel.protocol, baseUrl: channel.baseUrl } : undefined);
+  return catalog?.options.find(option => option.id === configuredModelId)?.id
+    || configuredModelId
+    || catalog?.options[0]?.id
+    || '';
+}
+
 export function ImageGenerationWorkbench({
   onSubmitText,
   onSubmitImage,
@@ -135,6 +156,7 @@ export function ImageGenerationWorkbench({
   const formRef = useRef<HTMLDivElement>(null);
 
   const [model, setModel] = useState<ModelId>(() => getDefaultModelId());
+  const [modelId, setModelId] = useState('');
   const [outputSize, setOutputSize] = useState<OutputSize>('1K');
   const [customSize, setCustomSize] = useState<string | undefined>(undefined);
   const [customSizeAlignMultiple, setCustomSizeAlignMultiple] = useState(true);
@@ -163,7 +185,10 @@ export function ImageGenerationWorkbench({
   const promptOptimizeUsable = promptOptimizeEnabled && promptOptimizeAvailable;
   const imageModelDefaultRefreshVersion = useImageModelDefaultRefresh();
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
-  const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport);
+  const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport, {
+    submission: t('workbench.mobileSend'),
+    newline: t('workbench.mobileNewline'),
+  });
 
   useEffect(() => () => {
     // 工作台卸载时终止仍在读取的提示词优化流，避免后台请求和卸载后的状态回调继续运行。
@@ -184,6 +209,7 @@ export function ImageGenerationWorkbench({
       setModel(patch.model);
       updateRegistryDefaults({ [currentMode === 'image-to-image' ? 'imageToImage' : 'textToImage']: patch.model });
     }
+    if (patch.modelId !== undefined) setModelId(patch.modelId);
     if (patch.outputSize !== undefined) setOutputSize(patch.outputSize);
     if ('customSize' in patch) setCustomSize(patch.customSize);
     if (patch.customSizeAlignMultiple !== undefined) setCustomSizeAlignMultiple(patch.customSizeAlignMultiple);
@@ -213,7 +239,15 @@ export function ImageGenerationWorkbench({
 
       const useInitial = Boolean(initialData);
       const saved = getSettingsFallback(Boolean(initialData?.refImages?.length));
-      const nextModel = normalizeModel(useInitial && initialData?.model ? initialData.model : saved.model);
+      const requestedChannelId = useInitial
+        ? (initialData?.channelId || initialData?.model)
+        : (saved.channelId || saved.model);
+      const nextModel = normalizeModel(requestedChannelId);
+      const candidateChannelId = String(requestedChannelId || '').trim();
+      const candidateModelId = candidateChannelId === nextModel
+        ? (useInitial ? initialData?.modelId : saved.modelId)
+        : undefined;
+      const nextModelId = getInitialRemoteModelId(nextModel, candidateModelId);
       const validSizes = getValidOutputSizes(nextModel);
       const nextOutputSize: OutputSize = useInitial && initialData?.outputSize && validSizes.includes(initialData.outputSize)
         ? initialData.outputSize
@@ -239,6 +273,7 @@ export function ImageGenerationWorkbench({
       const nextPromptVariants = normalizePromptVariants(useInitial ? initialData?.promptVariants : saved.promptVariants);
 
       setModel(nextModel);
+      setModelId(nextModelId);
       setOutputSize(nextOutputSize);
       setCustomSize(nextCustomSize);
       setCustomSizeAlignMultiple(nextCustomSizeAlignMultiple);
@@ -272,6 +307,8 @@ export function ImageGenerationWorkbench({
     if (!settingsReady) return;
     saveJsonToStorage(WORKBENCH_SETTINGS_KEY, {
       model,
+      channelId: model,
+      modelId,
       outputSize,
       customSize,
       customSizeAlignMultiple,
@@ -284,7 +321,7 @@ export function ImageGenerationWorkbench({
       parallelCount,
       promptVariants,
     });
-  }, [model, outputSize, customSize, customSizeAlignMultiple, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, promptVariants, settingsReady]);
+  }, [model, modelId, outputSize, customSize, customSizeAlignMultiple, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, promptVariants, settingsReady]);
 
   const handleOptimize = useCallback(() => {
     if (!prompt.trim()) return;
@@ -580,6 +617,7 @@ export function ImageGenerationWorkbench({
         aspectRatio,
         temperature,
         model: modelWithBilling,
+        modelId,
         gptImageQuality: gptImageAdvancedParams.quality,
         gptImageStyle: gptImageAdvancedParams.style,
         gptImageBackground: gptImageAdvancedParams.background,
@@ -596,6 +634,7 @@ export function ImageGenerationWorkbench({
         aspectRatio,
         temperature,
         model: modelWithBilling,
+        modelId,
         gptImageQuality: gptImageAdvancedParams.quality,
         gptImageStyle: gptImageAdvancedParams.style,
         gptImageBackground: gptImageAdvancedParams.background,
@@ -705,22 +744,28 @@ export function ImageGenerationWorkbench({
               </div>
             )}
 
-            <Textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={pendingFiles.length > 0 ? t('workbench.imageEditPlaceholder') : t('workbench.imageGeneratePlaceholder')}
-              rows={3}
-              className="resize-none rounded-none border-0 bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4"
-            />
-            <p className="px-3 pb-1 text-xs text-muted-foreground sm:px-4" aria-live="polite">
-              {t('workbench.shortcutHint', { submission: shortcutLabels.submission, newline: shortcutLabels.newline })}
-            </p>
+            <div className="mx-3 mt-1 overflow-hidden rounded-xl border-2 border-primary/35 bg-background/70 shadow-sm transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/15 sm:mx-4">
+              <label htmlFor="image-generation-prompt" className="block px-3 pt-3 text-xs font-semibold text-primary sm:px-4 sm:pt-4">
+                {t('workbench.promptLabel')}
+              </label>
+              <Textarea
+                id="image-generation-prompt"
+                ref={textareaRef}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={pendingFiles.length > 0 ? t('workbench.imageEditPlaceholder') : t('workbench.imageGeneratePlaceholder')}
+                rows={6}
+                className="min-h-40 resize-none rounded-none border-0 bg-transparent px-3 pt-2.5 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:min-h-48 sm:px-4 sm:pt-2.5"
+              />
+              <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4" aria-live="polite">
+                {t('workbench.shortcutHint', { submission: shortcutLabels.submission, newline: shortcutLabels.newline })}
+              </p>
+            </div>
 
             <div className="px-3 pt-2 pb-2 sm:px-4">
               <GenerationParamsPanel
-                value={{ model, outputSize, customSize, customSizeAlignMultiple, aspectRatio, temperature, parallelCount, gptImageAdvancedParams }}
+                value={{ model, modelId, outputSize, customSize, customSizeAlignMultiple, aspectRatio, temperature, parallelCount, gptImageAdvancedParams }}
                 onChange={handleParamsChange}
                 modelUnavailable={disabled}
               >
