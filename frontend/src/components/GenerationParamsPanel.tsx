@@ -287,18 +287,6 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
               placeholder={t('workbench.selectRemoteModel')}
             />
           </div>
-          {supportsAdvanced && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">{t('workbench.quality')}</label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {GPT_IMAGE_QUALITY_OPTIONS.map(option => (
-                  <button key={option.value} type="button" onClick={() => updateQuality(option.value)} className={cn('h-8 rounded-md border border-border text-xs transition-colors hover:bg-muted', value.gptImageAdvancedParams.quality === option.value && 'border-primary bg-primary/10 font-medium text-primary')}>
-                    {t(`workbench.quality.${option.value}` as 'workbench.quality.auto')}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {sizeOptions.length > 1 && (
@@ -310,6 +298,16 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
             </div>
           </div>
         )}
+
+        <div className="space-y-1.5"><label className="text-xs font-medium text-muted-foreground">{t('workbench.aspectRatio')}</label><div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          {aspectOptions.map(option => <button key={option.value} type="button" aria-label={option.value} disabled={autoLocked} onClick={() => onChange({ aspectRatio: option.value, customSize: supportsCustomSize(model) ? (normalizeCustomImageSize(option.resolution, customSizeMaxSide) || undefined) : undefined })} className={cn('relative flex h-24 flex-col items-center justify-between rounded-md border border-border px-2.5 py-3 text-xs transition-colors hover:bg-muted disabled:opacity-50', value.aspectRatio === option.value && 'border-primary bg-primary/10 font-medium text-primary')}>
+            {value.aspectRatio === option.value && <Check className="absolute right-1.5 top-1.5 size-3" />}
+            <span className="flex min-h-0 flex-1 items-center justify-center">
+              <span data-testid={`aspect-ratio-preview-${option.value.replace(/[^0-9a-z]+/gi, '-')}`} className="block shrink-0 rounded-[2px] border-2 border-current" style={getPreviewDimensions(option.value)} />
+            </span>
+            <span className="shrink-0 text-[10px] leading-4 text-muted-foreground">{option.value}</span>
+          </button>)}
+        </div></div>
 
         {supportsCustomSize(model) && !autoLocked && (
           <div className="space-y-2 border-t border-border/60 pt-3">
@@ -335,17 +333,20 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
           </div>
         )}
 
-        <div className="space-y-1.5"><label className="text-xs font-medium text-muted-foreground">{t('workbench.aspectRatio')}</label><div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-          {aspectOptions.map(option => <button key={option.value} type="button" aria-label={option.value} disabled={autoLocked} onClick={() => onChange({ aspectRatio: option.value, customSize: supportsCustomSize(model) ? (normalizeCustomImageSize(option.resolution, customSizeMaxSide) || undefined) : undefined })} className={cn('relative flex h-24 flex-col items-center justify-between rounded-md border border-border px-2.5 py-3 text-xs transition-colors hover:bg-muted disabled:opacity-50', value.aspectRatio === option.value && 'border-primary bg-primary/10 font-medium text-primary')}>
-            {value.aspectRatio === option.value && <Check className="absolute right-1.5 top-1.5 size-3" />}
-            <span className="flex min-h-0 flex-1 items-center justify-center">
-              <span data-testid={`aspect-ratio-preview-${option.value.replace(/[^0-9a-z]+/gi, '-')}`} className="block shrink-0 rounded-[2px] border-2 border-current" style={getPreviewDimensions(option.value)} />
-            </span>
-            <span className="shrink-0 text-[10px] leading-4 text-muted-foreground">{option.value}</span>
-          </button>)}
-        </div></div>
-
         {supportsAdvanced && <div className="space-y-1.5"><label className="text-xs font-medium text-muted-foreground">{t('workbench.background')}</label><div className="grid grid-cols-3 gap-1.5">{GPT_IMAGE_BACKGROUND_OPTIONS.map(option => <button key={option.value} type="button" onClick={() => updateBackground(option.value)} className={cn('h-8 rounded-md border border-border text-xs', value.gptImageAdvancedParams.background === option.value && 'border-primary bg-primary/10 font-medium text-primary')}>{t(`workbench.background.${option.value}` as 'workbench.background.auto')}</button>)}</div></div>}
+
+        {supportsAdvanced && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{t('workbench.quality')}</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {GPT_IMAGE_QUALITY_OPTIONS.map(option => (
+                <button key={option.value} type="button" onClick={() => updateQuality(option.value)} className={cn('h-8 rounded-md border border-border text-xs transition-colors hover:bg-muted', value.gptImageAdvancedParams.quality === option.value && 'border-primary bg-primary/10 font-medium text-primary')}>
+                  {t(`workbench.quality.${option.value}` as 'workbench.quality.auto')}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label className="text-xs font-medium text-muted-foreground">{t('workbench.parallelCount')}</label><div className="flex flex-wrap items-center gap-1.5">
           <div className="relative">
