@@ -691,7 +691,7 @@ describe('VideoGenerationWorkspace', () => {
     expect(anchorClick).not.toHaveBeenCalled();
   });
 
-  it('在视频任务卡片展示服务端任务 ID、模型名称、模型 ID、清晰度和总耗时', () => {
+  it('在视频任务卡片展示渠道、模型、宽高、清晰度和总耗时', () => {
     localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
       id: 'local-video-job',
       serverTaskId: 'server-traceable-task-id',
@@ -719,9 +719,13 @@ describe('VideoGenerationWorkspace', () => {
 
     const taskCard = screen.getByText('server-traceable-task-id').closest('article');
     expect(taskCard).not.toBeNull();
+    expect(within(taskCard!).getByText('Channel')).toBeInTheDocument();
+    expect(within(taskCard!).getByText('Model')).toBeInTheDocument();
     expect(within(taskCard!).getByText('Video Test')).toBeInTheDocument();
     expect(within(taskCard!).getByText('sora-2-api-model')).toBeInTheDocument();
     expect(within(taskCard!).getByText('1080p')).toBeInTheDocument();
+    expect(within(taskCard!).getByText('Size')).toBeInTheDocument();
+    expect(within(taskCard!).getByText('1920x1080')).toBeInTheDocument();
     expect(within(taskCard!).getByText('1m 5s')).toBeInTheDocument();
   });
 
@@ -986,7 +990,7 @@ describe('VideoGenerationWorkspace', () => {
     expect(squarePreview).toHaveStyle({ width: '36px', height: '36px' });
     expect(screen.getAllByText('16:9').length).toBeGreaterThan(0);
     expect(screen.getAllByText('9:16').length).toBeGreaterThan(0);
-    for (const ratio of ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']) {
+    for (const ratio of ['1:1', '3:4', '4:3', '3:2', '2:3', '9:16', '16:9', '21:9']) {
       expect(screen.getByRole('button', { name: ratio })).toBeInTheDocument();
     }
     const portraitCard = screen.getByRole('button', { name: '9:16' });

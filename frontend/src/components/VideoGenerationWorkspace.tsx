@@ -63,7 +63,7 @@ interface VideoSizePreviewProps {
   selected: boolean;
 }
 
-const VIDEO_ASPECT_RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9'] as const;
+const VIDEO_ASPECT_RATIO_OPTIONS = ['1:1', '3:4', '4:3', '3:2', '2:3', '9:16', '16:9', '21:9'] as const;
 
 type VideoPlaybackState = 'loading' | 'ready' | 'error' | 'repairing';
 
@@ -1702,14 +1702,15 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
                 </Button>
               </div>
               <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 border-y py-2 text-xs sm:grid-cols-4">
-                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.modelName')}</dt><dd className="truncate font-medium text-foreground" title={job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}>{job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('workbench.channel')}</dt><dd className="truncate font-medium text-foreground" title={job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}>{job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('workbench.model')}</dt><dd className="truncate font-mono text-[11px] font-medium text-foreground" title={getVideoJobApiModelId(job, models)}>{getVideoJobApiModelId(job, models)}</dd></div>
                 <div className="min-w-0"><dt className="text-muted-foreground">{t('video.resolution')}</dt><dd className="font-medium text-foreground">{getVideoResolutionLabel(job.resolution)}</dd></div>
-                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.totalDuration')}</dt><dd className="font-medium text-foreground">{formatVideoJobDuration(job.durationMs, job.durationUpdatedAt, job.status === '排队中' || job.status === 'processing', job.createdAt, job.completedAt, durationNowMs, locale)}</dd></div>
                 <div className="min-w-0"><dt className="text-muted-foreground">{t('video.seconds')}</dt><dd className="flex items-center gap-1 font-medium text-foreground"><Clock3 className="size-3" />{job.seconds}s</dd></div>
-                <div className="col-span-2 min-w-0 sm:col-span-4"><dt className="text-muted-foreground">{t('video.modelId')}</dt><dd className="select-all break-all font-mono text-[11px] text-foreground">{getVideoJobApiModelId(job, models)}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.size')}</dt><dd className="font-medium text-foreground">{job.videoSize || '--'}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.totalDuration')}</dt><dd className="font-medium text-foreground">{formatVideoJobDuration(job.durationMs, job.durationUpdatedAt, job.status === '排队中' || job.status === 'processing', job.createdAt, job.completedAt, durationNowMs, locale)}</dd></div>
                 <div className="col-span-2 min-w-0 sm:col-span-4"><dt className="text-muted-foreground">{t('video.taskId')}</dt><dd className="select-all break-all font-mono text-[11px] text-foreground">{job.serverTaskId || t('video.taskIdPending')}</dd></div>
               </dl>
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span>{job.videoSize}</span>{job.protocol === 'xai' && job.aspectRatio && <span>{job.aspectRatio}</span>}<span>{t('video.createdAt', { time: formatJobTime(job.createdAt, locale) })}</span></div>
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">{job.protocol === 'xai' && job.aspectRatio && <span>{job.aspectRatio}</span>}<span>{t('video.createdAt', { time: formatJobTime(job.createdAt, locale) })}</span></div>
               {job.error && <p className="rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">{job.error}</p>}
               <div className="flex flex-wrap gap-2">
                 {job.status === 'completed' && (job.videoUrl || (getVideoJobSourceUrl(job) && !job.cached)) && <Button variant="outline" size="sm" className="gap-2" disabled={downloadingVideoJobIds.has(job.id)} onClick={() => void handleDownloadVideo(job)}>{downloadingVideoJobIds.has(job.id) ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}{t('video.download')}</Button>}
