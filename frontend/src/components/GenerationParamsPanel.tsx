@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, SlidersHorizontal, Thermometer } from 'lucide-react';
+import { Check, ChevronDown, RefreshCw, SlidersHorizontal, Thermometer } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
@@ -30,7 +30,9 @@ import {
   type ParallelCount,
 } from '@/lib/model-capabilities';
 import { getImageModelById, getResolvedImageModelId, loadRegistry } from '@/lib/flyreq-models';
-import { getModelCatalogCache, MODEL_CATALOG_CACHE_UPDATED_EVENT } from '@/lib/model-catalog-cache';
+import { getModelCatalogCache, MODEL_CATALOG_CACHE_UPDATED_EVENT, saveModelCatalogCache } from '@/lib/model-catalog-cache';
+import { fetchRemoteModels } from '@/lib/flyreq-task-client';
+import { dispatchImageActionToast } from '@/lib/image-actions';
 import type { AspectRatio, OutputSize } from '@/lib/job-store';
 
 export interface GenerationParamsPanelValue {
@@ -95,6 +97,7 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
   const customSizeMaxSide = getCustomSizeMaxSide(model) || 3840;
   const alignCustomSize = value.customSizeAlignMultiple;
   const [parallelMenuOpen, setParallelMenuOpen] = useState(false);
+  const [refreshingModels, setRefreshingModels] = useState(false);
   const [, setCatalogVersion] = useState(0);
   useEffect(() => {
     const handleCatalogUpdate = () => setCatalogVersion(version => version + 1);
@@ -113,6 +116,33 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
       ? [{ id: configuredRemoteModelId, name: configuredRemoteModelId }]
       : []),
   ].filter((option, index, options) => options.findIndex(candidate => candidate.id === option.id) === index), [cachedCatalog, configuredRemoteModelId, value.modelId]);
+
+  /**
+   * 使用当前图片渠道的凭据获取远端模型，并写入与设置页相同的目录缓存。
+   * @returns 请求完成后刷新模型选项并显示操作结果的 Promise。
+   */
+  const handleRefreshModels = async (): Promise<void> => {
+    if (!channelConfig || refreshingModels) return;
+    setRefreshingModels(true);
+    try {
+      const options = await fetchRemoteModels({
+        baseUrl: channelConfig.baseUrl,
+        apiKey: channelConfig.apiKey,
+        protocol: channelConfig.protocol,
+      });
+      saveModelCatalogCache({
+        channelId: channelConfig.id,
+        protocol: channelConfig.protocol,
+        baseUrl: channelConfig.baseUrl,
+        options,
+      });
+      dispatchImageActionToast(t('workbench.modelsRefreshed', { count: options.length }), 'success');
+    } catch (error) {
+      dispatchImageActionToast(error instanceof Error ? error.message : t('workbench.refreshModelsFailed'), 'error');
+    } finally {
+      setRefreshingModels(false);
+    }
+  };
   const recommendedResolution = getRecommendedResolution(aspectOptions, value.aspectRatio);
   const [customWidth, setCustomWidth] = useState(() => parseCustomSize(value.customSize || recommendedResolution).width);
   const [customHeight, setCustomHeight] = useState(() => parseCustomSize(value.customSize || recommendedResolution).height);
@@ -278,14 +308,27 @@ export function GenerationParamsPanel({ value, onChange, modelUnavailable = fals
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t('workbench.model')}</label>
-            <Select<string>
-              value={value.modelId}
-              onValueChange={handleRemoteModelChange}
-              size="sm"
-              disabled={modelUnavailable || remoteModelOptions.length === 0}
-              options={remoteModelOptions.map(option => ({ value: option.id, label: option.name === option.id ? option.id : `${option.name} (${option.id})` }))}
-              placeholder={t('workbench.selectRemoteModel')}
-            />
+            <div className="flex min-w-0 gap-1.5">
+              <Select<string>
+                value={value.modelId}
+                onValueChange={handleRemoteModelChange}
+                size="sm"
+                disabled={modelUnavailable || remoteModelOptions.length === 0}
+                options={remoteModelOptions.map(option => ({ value: option.id, label: option.name === option.id ? option.id : `${option.name} (${option.id})` }))}
+                placeholder={t('workbench.selectRemoteModel')}
+                className="min-w-0 flex-1"
+              />
+              <button
+                type="button"
+                onClick={() => void handleRefreshModels()}
+                disabled={modelUnavailable || !channelConfig || refreshingModels}
+                aria-label={t('workbench.refreshModels')}
+                title={t('workbench.refreshModels')}
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className={cn('size-3.5', refreshingModels && 'animate-spin')} />
+              </button>
+            </div>
           </div>
         </div>
 

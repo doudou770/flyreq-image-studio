@@ -7,6 +7,7 @@ import { loadRegistry, saveRegistry } from '@/lib/flyreq-models';
 import { setPromptOptimizeEnabled } from '@/lib/settings-storage';
 import { cacheVideoBlob, cacheVideoReferenceFiles, deleteVideoBlob, fetchVideoBlob, restoreVideoBlobUrl, restoreVideoReferenceFiles, storeVideoBlob } from '@/lib/video-job-store';
 import { applyVideoProtocolConfig, getVideoProtocolConfig } from '@/lib/video-config';
+import { getModelCatalogCache } from '@/lib/model-catalog-cache';
 
 vi.mock('@/lib/video-job-store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/video-job-store')>();
@@ -78,6 +79,29 @@ describe('VideoGenerationWorkspace', () => {
     expect(screen.getByLabelText('Submission shortcut')).toBeInTheDocument();
     expect(screen.getByTitle('Configure the default text model first')).toBeDisabled();
     expect(screen.getByTitle('Generate video')).toBeDisabled();
+  });
+
+  it('refreshes the selected channel model catalog and reports the result', async () => {
+    const showToast = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: 'sora-2-pro', displayName: 'Sora 2 Pro' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={showToast} />
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('1 models refreshed.', 'success'));
+    expect(getModelCatalogCache('video-test', { protocol: 'openai', baseUrl: 'https://video.example.com' })?.options).toEqual([
+      { id: 'sora-2-pro', name: 'Sora 2 Pro' },
+    ]);
   });
 
   it('为移动浏览器播放器启用内联播放', async () => {

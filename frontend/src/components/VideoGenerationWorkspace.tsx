@@ -39,7 +39,8 @@ import { cn } from '@/lib/utils';
 import { normalizePastedFileName } from '@/lib/pasted-file-naming';
 import { MAX_PARALLEL_COUNT, PARALLEL_COUNT_OPTIONS, type ParallelCount } from '@/lib/model-capabilities';
 import { composeEffectiveVideoPrompt } from '@/lib/video-prompt-variants';
-import { getModelCatalogCache, MODEL_CATALOG_CACHE_UPDATED_EVENT } from '@/lib/model-catalog-cache';
+import { getModelCatalogCache, MODEL_CATALOG_CACHE_UPDATED_EVENT, saveModelCatalogCache } from '@/lib/model-catalog-cache';
+import { fetchRemoteModels } from '@/lib/flyreq-task-client';
 
 interface VideoGenerationWorkspaceProps {
   wideMode?: boolean;
@@ -411,6 +412,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const [models, setModels] = useState<VideoModelConfig[]>([]);
   const [modelId, setModelId] = useState('');
   const [remoteModelId, setRemoteModelId] = useState('');
+  const [refreshingModels, setRefreshingModels] = useState(false);
   const [prompt, setPrompt] = useState('');
   // 移动端默认收起参数区以节省首屏空间，桌面端默认展开并允许用户主动切换。
   const [parametersExpanded, setParametersExpanded] = useState(() => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 767px)').matches);
@@ -487,6 +489,34 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     if (!selectedModel || !remoteModelId || remoteModelId === configuredRemoteModelId) return selectedModel;
     return { ...selectedModel, modelId: remoteModelId, usesPresetModelId: false };
   }, [configuredRemoteModelId, remoteModelId, selectedModel]);
+
+  /**
+   * 使用当前视频渠道的凭据获取远端模型，并写入与设置页相同的目录缓存。
+   * @returns 请求完成后刷新模型选项并显示操作结果的 Promise。
+   */
+  const handleRefreshModels = async (): Promise<void> => {
+    if (!selectedModel || refreshingModels) return;
+    setRefreshingModels(true);
+    try {
+      const options = await fetchRemoteModels({
+        baseUrl: selectedModel.baseUrl,
+        apiKey: selectedModel.apiKey,
+        // 视频协议的模型目录统一按 OpenAI 兼容接口获取，与设置页保持一致。
+        protocol: 'openai',
+      });
+      saveModelCatalogCache({
+        channelId: selectedModel.id,
+        protocol: 'openai',
+        baseUrl: selectedModel.baseUrl,
+        options,
+      });
+      showToast(t('workbench.modelsRefreshed', { count: options.length }), 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t('workbench.refreshModelsFailed'), 'error');
+    } finally {
+      setRefreshingModels(false);
+    }
+  };
 
   /**
    * 使指定任务的当前视频缓存失效，并串行删除 IndexedDB 记录。
@@ -1535,7 +1565,19 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-xs font-medium text-muted-foreground">{t('workbench.model')}</label>
-                        <Select<string> value={remoteModelId} onValueChange={handleRemoteModelChange} size="sm" disabled={!selectedModel || remoteModelOptions.length === 0} options={remoteModelOptions.map(option => ({ value: option.id, label: option.name === option.id ? option.id : `${option.name} (${option.id})` }))} placeholder={t('workbench.selectRemoteModel')} />
+                        <div className="flex min-w-0 gap-1.5">
+                          <Select<string> value={remoteModelId} onValueChange={handleRemoteModelChange} size="sm" disabled={!selectedModel || remoteModelOptions.length === 0} options={remoteModelOptions.map(option => ({ value: option.id, label: option.name === option.id ? option.id : `${option.name} (${option.id})` }))} placeholder={t('workbench.selectRemoteModel')} className="min-w-0 flex-1" />
+                          <button
+                            type="button"
+                            onClick={() => void handleRefreshModels()}
+                            disabled={!selectedModel || refreshingModels}
+                            aria-label={t('workbench.refreshModels')}
+                            title={t('workbench.refreshModels')}
+                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <RefreshCw className={cn('size-3.5', refreshingModels && 'animate-spin')} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <div data-testid="video-parameter-grid" className="space-y-4">
