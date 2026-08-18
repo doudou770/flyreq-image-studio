@@ -7,6 +7,7 @@ import { loadRegistry, saveRegistry } from '@/lib/flyreq-models';
 import { setPromptOptimizeEnabled } from '@/lib/settings-storage';
 import { cacheVideoBlob, cacheVideoReferenceFiles, deleteVideoBlob, fetchVideoBlob, restoreVideoBlobUrl, restoreVideoReferenceFiles, storeVideoBlob } from '@/lib/video-job-store';
 import { applyVideoProtocolConfig, getVideoProtocolConfig } from '@/lib/video-config';
+import { getModelCatalogCache } from '@/lib/model-catalog-cache';
 
 vi.mock('@/lib/video-job-store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/video-job-store')>();
@@ -72,11 +73,35 @@ describe('VideoGenerationWorkspace', () => {
     expect(screen.getAllByText('0 / 3')).toHaveLength(2);
     expect(screen.getByRole('button', { name: '4K' })).toBeInTheDocument();
     expect(screen.getByTestId('video-resolution-icon')).toBeInTheDocument();
-    expect(screen.getByTestId('video-parameter-grid')).toHaveClass('md:grid-cols-4');
+    expect(screen.getByTestId('video-parameter-grid')).toHaveClass('space-y-4');
     expect(within(screen.getByTestId('video-parameter-grid')).getByRole('button', { name: 'Video count' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '15s' })).toBeInTheDocument();
     expect(screen.getByLabelText('Submission shortcut')).toBeInTheDocument();
     expect(screen.getByTitle('Configure the default text model first')).toBeDisabled();
     expect(screen.getByTitle('Generate video')).toBeDisabled();
+  });
+
+  it('refreshes the selected channel model catalog and reports the result', async () => {
+    const showToast = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: 'sora-2-pro', displayName: 'Sora 2 Pro' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <LanguageProvider initialLocale="en">
+        <VideoGenerationWorkspace onConfigureApiKey={vi.fn()} showToast={showToast} />
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('1 models refreshed.', 'success'));
+    expect(getModelCatalogCache('video-test', { protocol: 'openai', baseUrl: 'https://video.example.com' })?.options).toEqual([
+      { id: 'sora-2-pro', name: 'Sora 2 Pro' },
+    ]);
   });
 
   it('为移动浏览器播放器启用内联播放', async () => {
@@ -208,7 +233,7 @@ describe('VideoGenerationWorkspace', () => {
     expect(screen.getByPlaceholderText('1-60 sec')).toBeInTheDocument();
   });
 
-  it('读取首张参考图尺寸并加入尺寸菜单', async () => {
+  it('读取首张参考图尺寸并加入尺寸卡片', async () => {
     vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1536, height: 864, close: vi.fn() }));
     render(
       <LanguageProvider initialLocale="en">
@@ -219,9 +244,7 @@ describe('VideoGenerationWorkspace', () => {
     const imageInput = document.getElementById('image-reference-input') as HTMLInputElement;
     fireEvent.change(imageInput, { target: { files: [new File(['image'], 'reference.png', { type: 'image/png' })] } });
     await waitFor(() => expect(vi.mocked(createImageBitmap)).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByRole('button', { name: '1280x720' }));
-
-    expect(await screen.findByText('Reference image')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /16:9.*1536x864/ })).toBeInTheDocument();
     expect(screen.getByText('1536x864')).toBeInTheDocument();
   });
 
@@ -692,7 +715,7 @@ describe('VideoGenerationWorkspace', () => {
     expect(anchorClick).not.toHaveBeenCalled();
   });
 
-  it('在视频任务卡片展示服务端任务 ID、模型名称、模型 ID、清晰度和总耗时', () => {
+  it('在视频任务卡片展示渠道、模型、宽高、清晰度和总耗时', () => {
     localStorage.setItem('flyreq-video-jobs', JSON.stringify([{
       id: 'local-video-job',
       serverTaskId: 'server-traceable-task-id',
@@ -720,9 +743,13 @@ describe('VideoGenerationWorkspace', () => {
 
     const taskCard = screen.getByText('server-traceable-task-id').closest('article');
     expect(taskCard).not.toBeNull();
+    expect(within(taskCard!).getByText('Channel')).toBeInTheDocument();
+    expect(within(taskCard!).getByText('Model')).toBeInTheDocument();
     expect(within(taskCard!).getByText('Video Test')).toBeInTheDocument();
     expect(within(taskCard!).getByText('sora-2-api-model')).toBeInTheDocument();
     expect(within(taskCard!).getByText('1080p')).toBeInTheDocument();
+    expect(within(taskCard!).getByText('Size')).toBeInTheDocument();
+    expect(within(taskCard!).getByText('1920x1080')).toBeInTheDocument();
     expect(within(taskCard!).getByText('1m 5s')).toBeInTheDocument();
   });
 
@@ -979,21 +1006,22 @@ describe('VideoGenerationWorkspace', () => {
       </LanguageProvider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '1280x720' }));
-
-    const landscapePreview = await screen.findByTestId('video-size-preview-1280x720');
-    const portraitPreview = await screen.findByTestId('video-size-preview-720x1280');
-    const squarePreview = await screen.findByTestId('video-size-preview-1024x1024');
+    const landscapePreview = await screen.findByTestId('video-aspect-ratio-preview-16-9');
+    const portraitPreview = await screen.findByTestId('video-aspect-ratio-preview-9-16');
+    const squarePreview = await screen.findByTestId('video-aspect-ratio-preview-1-1');
     expect(landscapePreview).toHaveStyle({ width: '48px', height: '27px' });
     expect(portraitPreview).toHaveStyle({ width: '20.25px', height: '36px' });
     expect(squarePreview).toHaveStyle({ width: '36px', height: '36px' });
-    expect(screen.getAllByText('Landscape').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Portrait').length).toBeGreaterThan(0);
-    expect(screen.getByText('Aspect ratio')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '9:16' }));
-    expect(screen.getByRole('button', { name: '720x1280' })).toBeInTheDocument();
+    expect(screen.getAllByText('16:9').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('9:16').length).toBeGreaterThan(0);
+    for (const ratio of ['1:1', '3:4', '4:3', '3:2', '2:3', '9:16', '16:9', '21:9']) {
+      expect(screen.getByRole('button', { name: ratio })).toBeInTheDocument();
+    }
+    const portraitCard = screen.getByRole('button', { name: '9:16' });
+    fireEvent.click(portraitCard);
+    expect(portraitCard).toHaveClass('border-primary');
+    expect(screen.getByLabelText('Width')).toHaveValue('720');
+    expect(screen.getByLabelText('Height')).toHaveValue('1280');
   });
 
   it('shows xAI resolution and aspect-ratio controls without a size control', () => {
@@ -1031,7 +1059,7 @@ describe('VideoGenerationWorkspace', () => {
     expect(screen.getByText('Add video')).toBeInTheDocument();
     expect(screen.getByText('Add audio')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Describe the scene, motion, camera, pacing, and sound you want…')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '1280x720' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
     expect(screen.getByText('Not configured')).toBeInTheDocument();
     expect(screen.getByText('Configure a video model to generate')).toBeInTheDocument();
     const configureButton = screen.getAllByRole('button', { name: 'Configure video model' }).find(button => !button.hasAttribute('disabled'));

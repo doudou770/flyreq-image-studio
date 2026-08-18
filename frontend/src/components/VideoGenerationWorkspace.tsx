@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowUp, Check, ChevronDown, CircleStop, Clock3, CloudUpload, Copy, Download, FileAudio, FileImage, FileVideo, Images, Info, Loader2, Maximize, RefreshCw, ScanLine, Sparkles, Trash2, Video, X } from 'lucide-react';
+import { ArrowUp, Check, ChevronDown, CircleStop, Clock3, CloudUpload, Copy, Download, FileAudio, FileImage, FileVideo, Images, Info, Loader2, Maximize, RefreshCw, ScanLine, SlidersHorizontal, Sparkles, Trash2, Video, X } from 'lucide-react';
 import { useI18n } from '@/components/LanguageProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { AttachmentChips } from '@/components/AttachmentChips';
 import { PromptOptimizeDialog } from '@/components/PromptOptimizeDialog';
 import { PromptSubmissionShortcutMenu } from '@/components/PromptSubmissionShortcutMenu';
 import { usePromptOptimizeSetting } from '@/hooks/usePromptOptimizeSetting';
-import { usePromptSubmissionShortcut } from '@/hooks/usePromptSubmissionShortcut';
+import { getEffectivePromptSubmissionShortcutLabels, usePromptSubmissionShortcut } from '@/hooks/usePromptSubmissionShortcut';
 import { getCompleteVideoModels, getDefaultVideoModel, getResolvedVideoModelId, loadRegistry, updateRegistryDefaults, type VideoModelConfig } from '@/lib/flyreq-models';
 import { acknowledgeVideoTask, cancelVideoTask, createVideoTask, createVideoTasks, getVideoTask } from '@/lib/video-task-client';
 import {
@@ -39,6 +39,8 @@ import { cn } from '@/lib/utils';
 import { normalizePastedFileName } from '@/lib/pasted-file-naming';
 import { MAX_PARALLEL_COUNT, PARALLEL_COUNT_OPTIONS, type ParallelCount } from '@/lib/model-capabilities';
 import { composeEffectiveVideoPrompt } from '@/lib/video-prompt-variants';
+import { getModelCatalogCache, MODEL_CATALOG_CACHE_UPDATED_EVENT, saveModelCatalogCache } from '@/lib/model-catalog-cache';
+import { fetchRemoteModels } from '@/lib/flyreq-task-client';
 
 interface VideoGenerationWorkspaceProps {
   wideMode?: boolean;
@@ -61,6 +63,8 @@ interface VideoSizePreviewProps {
   size: string;
   selected: boolean;
 }
+
+const VIDEO_ASPECT_RATIO_OPTIONS = ['1:1', '3:4', '4:3', '3:2', '2:3', '9:16', '16:9', '21:9'] as const;
 
 type VideoPlaybackState = 'loading' | 'ready' | 'error' | 'repairing';
 
@@ -105,21 +109,52 @@ function getVideoSizePreviewDimensions(size: string): { width: number; height: n
 }
 
 /**
- * 根据视频尺寸方向生成当前语言下的直观画幅名称。
- * @param size 视频尺寸，格式为“宽x高”或“auto”。
- * @param t 多语言翻译方法。
- * @returns 方形、横屏、竖屏等画幅名称。
+ * 计算宽高比卡片中的预览框尺寸，保持不同画幅在同一网格中可比较。
+ * @param ratio 视频宽高比字符串。
+ * @returns 不超过 48×36 像素的预览框宽高。
  */
-function getVideoSizeDisplayName(size: string, t: ReturnType<typeof useI18n>['t']): string {
-  if (size === 'auto') return t('aspectRatio.auto');
-  const match = size.match(/^(\d+)x(\d+)$/i);
-  if (!match) return size;
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (width === height) return t('aspectRatio.square');
-  if (width / height >= 2) return t('aspectRatio.panorama');
-  if (height / width >= 2) return t('aspectRatio.tallPortrait');
-  return width > height ? t('aspectRatio.landscape') : t('aspectRatio.portrait');
+function getVideoAspectRatioPreviewDimensions(ratio: string): { width: number; height: number } {
+  const match = ratio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!match) return { width: 32, height: 32 };
+  const widthRatio = Number(match[1]);
+  const heightRatio = Number(match[2]);
+  const scale = Math.min(48 / widthRatio, 36 / heightRatio);
+  return {
+    width: Math.max(6, widthRatio * scale),
+    height: Math.max(6, heightRatio * scale),
+  };
+}
+
+/**
+ * 根据比例和清晰度计算视频尺寸，清晰度代表较短边像素数，并将最长边限制在 4096 内。
+ * @param ratio 视频宽高比。
+ * @param resolution 当前清晰度数值。
+ * @returns 可提交的视频尺寸字符串。
+ */
+function getVideoDimensionsForAspectRatio(ratio: string, resolution: number): string {
+  const match = ratio.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!match || !Number.isInteger(resolution) || resolution <= 0) return '';
+  const ratioWidth = Number(match[1]);
+  const ratioHeight = Number(match[2]);
+  const shortRatio = Math.min(ratioWidth, ratioHeight);
+  const longRatio = Math.max(ratioWidth, ratioHeight);
+  const maxShortEdge = Math.floor((4096 * shortRatio) / longRatio);
+  const shortEdge = Math.max(64, Math.min(resolution, maxShortEdge));
+  const roundEven = (value: number) => Math.max(64, Math.round(value / 2) * 2);
+  const longEdge = roundEven(shortEdge * longRatio / shortRatio);
+  const normalizedShortEdge = ratioWidth >= ratioHeight ? roundEven(longEdge * ratioHeight / ratioWidth) : roundEven(longEdge * ratioWidth / ratioHeight);
+  return ratioWidth >= ratioHeight
+    ? `${longEdge}x${normalizedShortEdge}`
+    : `${normalizedShortEdge}x${longEdge}`;
+}
+
+/**
+ * 判断协议比例列表是否包含工作台约定的常见比例。
+ * @param ratio 待判断的比例字符串。
+ * @returns 是否属于工作台常见比例集合。
+ */
+function isCommonVideoAspectRatio(ratio: string): ratio is typeof VIDEO_ASPECT_RATIO_OPTIONS[number] {
+  return (VIDEO_ASPECT_RATIO_OPTIONS as readonly string[]).includes(ratio);
 }
 
 /**
@@ -141,6 +176,16 @@ function getVideoSizeAspectRatio(size: string): string {
     right = remainder;
   }
   return `${width / left}:${height / left}`;
+}
+
+/**
+ * 从视频尺寸字符串中提取宽度和高度，供尺寸卡片同步自定义输入框使用。
+ * @param size 视频尺寸，格式为“宽x高”。
+ * @returns 可直接写入输入框的宽高字符串；无法解析时返回空字符串。
+ */
+function getVideoSizeDimensions(size: string): { width: string; height: string } {
+  const match = size.match(/^(\d+)x(\d+)$/i);
+  return match ? { width: match[1], height: match[2] } : { width: '', height: '' };
 }
 
 /**
@@ -207,6 +252,24 @@ function VideoSizePreview({ size, selected }: VideoSizePreviewProps) {
       >
         {size === 'auto' && <Sparkles className="size-3 text-muted-foreground" />}
       </span>
+    </div>
+  );
+}
+
+/**
+ * 渲染比例卡片中的画幅预览框。
+ * @param props 比例和选中状态。
+ * @returns 固定区域内按比例缩放的轮廓框。
+ */
+function VideoAspectRatioPreview({ ratio, selected }: { ratio: string; selected: boolean }) {
+  const dimensions = getVideoAspectRatioPreviewDimensions(ratio);
+  return (
+    <div className="flex h-10 w-full items-center justify-center" aria-hidden="true">
+      <span
+        data-testid={`video-aspect-ratio-preview-${ratio.replace(/[^0-9a-z]+/gi, '-')}`}
+        className={cn('block shrink-0 rounded-[3px] border-2 transition-colors', selected ? 'border-primary bg-primary/10' : 'border-muted-foreground/70 bg-background')}
+        style={{ width: dimensions.width, height: dimensions.height }}
+      />
     </div>
   );
 }
@@ -344,9 +407,15 @@ function getVideoJobApiModelId(job: StoredVideoJob, models: VideoModelConfig[]):
 export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, showToast }: VideoGenerationWorkspaceProps) {
   const { locale, t } = useI18n();
   const config = useMemo(() => getVideoWorkspaceConfig(), []);
+  const initialVideoSize = config.sizes[0] || '1280x720';
+  const initialVideoDimensions = getVideoSizeDimensions(initialVideoSize);
   const [models, setModels] = useState<VideoModelConfig[]>([]);
   const [modelId, setModelId] = useState('');
+  const [remoteModelId, setRemoteModelId] = useState('');
+  const [refreshingModels, setRefreshingModels] = useState(false);
   const [prompt, setPrompt] = useState('');
+  // 移动端默认收起参数区以节省首屏空间，桌面端默认展开并允许用户主动切换。
+  const [parametersExpanded, setParametersExpanded] = useState(() => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 767px)').matches);
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [referenceVideos, setReferenceVideos] = useState<File[]>([]);
   const [referenceAudios, setReferenceAudios] = useState<File[]>([]);
@@ -354,11 +423,12 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const [resolution, setResolution] = useState(config.resolutions[0] || 720);
   const [customResolution, setCustomResolution] = useState('');
   const [resolutionMode, setResolutionMode] = useState<'preset' | 'custom'>('preset');
-  const [videoSize, setVideoSize] = useState(config.sizes[0] || '1280x720');
+  const [videoSize, setVideoSize] = useState(initialVideoSize);
+  const [sizeAspectRatio, setSizeAspectRatio] = useState(() => getVideoSizeAspectRatio(initialVideoSize) || '16:9');
   const [referenceImageSize, setReferenceImageSize] = useState('');
   const [aspectRatio, setAspectRatio] = useState('16:9');
-  const [customWidth, setCustomWidth] = useState('');
-  const [customHeight, setCustomHeight] = useState('');
+  const [customWidth, setCustomWidth] = useState(initialVideoDimensions.width);
+  const [customHeight, setCustomHeight] = useState(initialVideoDimensions.height);
   const [sizeMode, setSizeMode] = useState<'preset' | 'custom' | 'reference'>('preset');
   const [seconds, setSeconds] = useState(config.durations[0] || 6);
   const [parallelCount, setParallelCount] = useState<ParallelCount>(1);
@@ -367,6 +437,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const [promptVariantsOpen, setPromptVariantsOpen] = useState(false);
   const [customSeconds, setCustomSeconds] = useState('');
   const [durationMode, setDurationMode] = useState<'preset' | 'custom'>('preset');
+  const [, setCatalogVersion] = useState(0);
   const [jobs, setJobs] = useState<StoredVideoJob[]>(() => loadVideoJobs());
   const [copiedPromptJobId, setCopiedPromptJobId] = useState<string | null>(null);
   const [durationNowMs, setDurationNowMs] = useState(() => Date.now());
@@ -396,7 +467,56 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const { enabled: promptOptimizeEnabled, available: promptOptimizeAvailable } = usePromptOptimizeSetting();
   const promptOptimizeUsable = promptOptimizeEnabled && promptOptimizeAvailable;
   const { submissionShortcut, isSmallViewport, updateSubmissionShortcut } = usePromptSubmissionShortcut();
+  const shortcutLabels = getEffectivePromptSubmissionShortcutLabels(submissionShortcut, isSmallViewport, {
+    submission: t('workbench.mobileSend'),
+    newline: t('workbench.mobileNewline'),
+  });
   const selectedModel = useMemo(() => models.find(model => model.id === modelId), [modelId, models]);
+  const configuredRemoteModelId = selectedModel ? getResolvedVideoModelId(selectedModel) : '';
+  const cachedModelCatalog = selectedModel
+    ? getModelCatalogCache(selectedModel.id, { protocol: 'openai', baseUrl: selectedModel.baseUrl })
+    : undefined;
+  const remoteModelOptions = useMemo(() => [
+    ...(cachedModelCatalog?.options || []),
+    ...(remoteModelId && !(cachedModelCatalog?.options || []).some(option => option.id === remoteModelId)
+      ? [{ id: remoteModelId, name: remoteModelId }]
+      : []),
+    ...(!cachedModelCatalog?.options?.length && configuredRemoteModelId && configuredRemoteModelId !== remoteModelId
+      ? [{ id: configuredRemoteModelId, name: configuredRemoteModelId }]
+      : []),
+  ].filter((option, index, options) => options.findIndex(candidate => candidate.id === option.id) === index), [cachedModelCatalog, configuredRemoteModelId, remoteModelId]);
+  const requestModel = useMemo(() => {
+    if (!selectedModel || !remoteModelId || remoteModelId === configuredRemoteModelId) return selectedModel;
+    return { ...selectedModel, modelId: remoteModelId, usesPresetModelId: false };
+  }, [configuredRemoteModelId, remoteModelId, selectedModel]);
+
+  /**
+   * 使用当前视频渠道的凭据获取远端模型，并写入与设置页相同的目录缓存。
+   * @returns 请求完成后刷新模型选项并显示操作结果的 Promise。
+   */
+  const handleRefreshModels = async (): Promise<void> => {
+    if (!selectedModel || refreshingModels) return;
+    setRefreshingModels(true);
+    try {
+      const options = await fetchRemoteModels({
+        baseUrl: selectedModel.baseUrl,
+        apiKey: selectedModel.apiKey,
+        // 视频协议的模型目录统一按 OpenAI 兼容接口获取，与设置页保持一致。
+        protocol: 'openai',
+      });
+      saveModelCatalogCache({
+        channelId: selectedModel.id,
+        protocol: 'openai',
+        baseUrl: selectedModel.baseUrl,
+        options,
+      });
+      showToast(t('workbench.modelsRefreshed', { count: options.length }), 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t('workbench.refreshModelsFailed'), 'error');
+    } finally {
+      setRefreshingModels(false);
+    }
+  };
 
   /**
    * 使指定任务的当前视频缓存失效，并串行删除 IndexedDB 记录。
@@ -433,7 +553,17 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
    */
   const handleModelChange = (nextModelId: string): void => {
     setModelId(nextModelId);
+    const nextModel = models.find(model => model.id === nextModelId);
+    setRemoteModelId(nextModel ? getResolvedVideoModelId(nextModel) : '');
     updateRegistryDefaults({ videoGeneration: nextModelId });
+  };
+
+  /** 选择当前视频渠道下实际提交的远端模型 ID。
+   * @param nextModelId 当前渠道目录中的远端模型 ID。
+   * @returns 无返回值，通过本地状态更新提交模型。
+   */
+  const handleRemoteModelChange = (nextModelId: string): void => {
+    setRemoteModelId(nextModelId);
   };
 
   /**
@@ -466,13 +596,17 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     });
   }, []);
   const protocolProfile = useMemo(
-    () => resolveVideoProtocolProfile(selectedModel?.protocol || 'new-api', selectedModel ? getResolvedVideoModelId(selectedModel) : '', referenceImages.length > 0),
-    [referenceImages.length, selectedModel],
+    () => resolveVideoProtocolProfile(requestModel?.protocol || 'new-api', requestModel ? getResolvedVideoModelId(requestModel) : '', referenceImages.length > 0),
+    [referenceImages.length, requestModel],
   );
   const maxReferenceImages = Math.min(config.maxRefImages, protocolProfile.references.images);
   const maxReferenceVideos = Math.min(config.maxRefVideos, protocolProfile.references.videos);
   const maxReferenceAudios = Math.min(config.maxRefAudios, protocolProfile.references.audios);
-  const durationOptions = useMemo(() => getVideoProtocolDurations(protocolProfile), [protocolProfile]);
+  const durationOptions = useMemo(() => {
+    const options = getVideoProtocolDurations(protocolProfile);
+    if (!options.includes(15) && isValidVideoProtocolDuration(protocolProfile, 15)) options.push(15);
+    return [...new Set(options)].sort((left, right) => left - right);
+  }, [protocolProfile]);
   const durationPlaceholder = protocolProfile.parameters.duration.mode === 'enum'
     ? durationOptions.join('/')
     : `${protocolProfile.parameters.duration.min}-${protocolProfile.parameters.duration.max} ${t('video.secondsUnit')}`;
@@ -567,11 +701,21 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
       const registry = loadRegistry();
       const complete = getCompleteVideoModels(registry);
       setModels(complete);
-      setModelId(current => complete.some(model => model.id === current) ? current : getDefaultVideoModel(registry)?.id || complete[0]?.id || '');
+      const nextChannelId = complete.some(model => model.id === modelId) ? modelId : getDefaultVideoModel(registry)?.id || complete[0]?.id || '';
+      const nextChannel = complete.find(model => model.id === nextChannelId);
+      setModelId(nextChannelId);
+      setRemoteModelId(nextChannel ? getResolvedVideoModelId(nextChannel) : '');
     };
     refreshModels();
     window.addEventListener('flyreq-model-registry-updated', refreshModels);
     return () => window.removeEventListener('flyreq-model-registry-updated', refreshModels);
+  }, [modelId]);
+
+  useEffect(() => {
+    /** 监听设置页更新的模型目录缓存，使远端模型选择即时刷新。 */
+    const handleCatalogUpdate = () => setCatalogVersion(version => version + 1);
+    window.addEventListener(MODEL_CATALOG_CACHE_UPDATED_EVENT, handleCatalogUpdate);
+    return () => window.removeEventListener(MODEL_CATALOG_CACHE_UPDATED_EVENT, handleCatalogUpdate);
   }, []);
 
   useEffect(() => { saveVideoJobs(jobs); }, [jobs]);
@@ -932,19 +1076,51 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     ? activeResolution
     : (resolutionCapability.values[0] || activeResolution);
   const sizeCapability = protocolProfile.parameters.size;
+  /**
+   * 根据选中的比例和清晰度同步视频尺寸及自定义宽高输入框。
+   * @param ratio 目标视频比例。
+   * @param resolutionValue 用于计算尺寸的清晰度数值。
+   * @returns 无返回值，通过状态更新当前尺寸。
+   */
+  const updateVideoSizeFromAspectRatio = useCallback((ratio: string, resolutionValue: number): void => {
+    setSizeAspectRatio(ratio);
+    if (sizeCapability.allowCustom) {
+      const dimensions = getVideoDimensionsForAspectRatio(ratio, resolutionValue);
+      const parsed = getVideoSizeDimensions(dimensions);
+      if (!parsed.width || !parsed.height) return;
+      setVideoSize(dimensions);
+      setCustomWidth(parsed.width);
+      setCustomHeight(parsed.height);
+      setSizeMode('custom');
+      return;
+    }
+    const matchingPreset = sizeCapability.values.find(value => getVideoSizeAspectRatio(value) === ratio);
+    if (matchingPreset) {
+      const dimensions = getVideoSizeDimensions(matchingPreset);
+      setVideoSize(matchingPreset);
+      setCustomWidth(dimensions.width);
+      setCustomHeight(dimensions.height);
+      setSizeMode('preset');
+    }
+  }, [sizeCapability.allowCustom, sizeCapability.values]);
   const sizeAspectRatioOptions = useMemo(
-    () => Array.from(new Set(sizeCapability.values.map(getVideoSizeAspectRatio).filter(Boolean))),
-    [sizeCapability.values],
+    () => sizeCapability.allowCustom
+      ? [...VIDEO_ASPECT_RATIO_OPTIONS]
+      : VIDEO_ASPECT_RATIO_OPTIONS.filter(ratio => sizeCapability.values.some(value => getVideoSizeAspectRatio(value) === ratio)),
+    [sizeCapability.allowCustom, sizeCapability.values],
+  );
+  const protocolAspectRatioOptions = useMemo(
+    () => protocolProfile.parameters.aspectRatio.values.filter(isCommonVideoAspectRatio),
+    [protocolProfile.parameters.aspectRatio.values],
   );
   const activeVideoSize = sizeMode === 'custom'
     ? `${customWidth}x${customHeight}`
     : sizeMode === 'reference'
       ? referenceImageSize
       : (sizeCapability.values.includes(videoSize) ? videoSize : (sizeCapability.values[0] || 'auto'));
-  const activeAspectRatio = protocolProfile.parameters.aspectRatio.values.includes(aspectRatio)
+  const activeAspectRatio = protocolAspectRatioOptions.some(value => value === aspectRatio)
     ? aspectRatio
-    : (protocolProfile.parameters.aspectRatio.values[0] || '');
-  const activeSizeAspectRatio = getVideoSizeAspectRatio(activeVideoSize);
+    : (protocolAspectRatioOptions[0] || '');
   const activeSeconds = durationMode === 'custom'
     ? Number(customSeconds)
     : (durationOptions.includes(seconds) ? seconds : durationOptions[0]);
@@ -1003,7 +1179,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
       effectivePrompt: composeEffectiveVideoPrompt(prompt, submitPromptVariants?.[batchIndex]),
       modelId: selectedModel.id,
       modelName: selectedModel.name,
-      apiModelId: getResolvedVideoModelId(selectedModel),
+      apiModelId: getResolvedVideoModelId(requestModel || selectedModel),
       protocol: selectedModel.protocol,
       resolution: activeProtocolResolution,
       videoSize: activeVideoSize,
@@ -1038,7 +1214,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     setJobs(current => [...batchJobs].reverse().concat(current));
     setSubmitting(true);
     try {
-      const input = { model: selectedModel, prompt: prompt.trim(), resolution: activeProtocolResolution, size: activeVideoSize, aspectRatio: activeAspectRatio, seconds: activeSeconds, referenceImages, referenceVideos, referenceAudios, promptVariants: submitPromptVariants };
+      const input = { model: requestModel || selectedModel, prompt: prompt.trim(), resolution: activeProtocolResolution, size: activeVideoSize, aspectRatio: activeAspectRatio, seconds: activeSeconds, referenceImages, referenceVideos, referenceAudios, promptVariants: submitPromptVariants };
       const tasks = parallelCount > 1 ? await createVideoTasks(input, parallelCount) : [await createVideoTask(input)];
       const taskByJobId = new Map(batchJobs.map((job, index) => [job.id, tasks[index]]));
       setJobs(current => current.map(item => {
@@ -1058,7 +1234,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     } finally {
       setSubmitting(false);
     }
-  }, [activeAspectRatio, activeAspectRatioValid, activeDurationValid, activeProtocolResolution, activeReferenceAudiosValid, activeReferenceImageCountValid, activeReferenceImageMimeTypesValid, activeReferenceVideosValid, activeResolutionValid, activeSeconds, activeVideoSize, activeVideoSizeValid, maxReferenceImages, onConfigureApiKey, parallelCount, prompt, referenceAudios, referenceImages, referenceVideos, selectedModel, showToast, submitPromptVariants, t]);
+  }, [activeAspectRatio, activeAspectRatioValid, activeDurationValid, activeProtocolResolution, activeReferenceAudiosValid, activeReferenceImageCountValid, activeReferenceImageMimeTypesValid, activeReferenceVideosValid, activeResolutionValid, activeSeconds, activeVideoSize, activeVideoSizeValid, maxReferenceImages, onConfigureApiKey, parallelCount, prompt, referenceAudios, referenceImages, requestModel, selectedModel, referenceVideos, showToast, submitPromptVariants, t]);
 
   /**
    * 使用默认文本模型流式优化当前视频提示词。
@@ -1249,8 +1425,14 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
       );
       setPrompt(job.effectivePrompt || job.prompt);
       setModelId(job.modelId);
+      setRemoteModelId(job.apiModelId || (restoredModel ? getResolvedVideoModelId(restoredModel) : ''));
       setResolution(job.resolution);
       setVideoSize(job.videoSize);
+      const restoredDimensions = getVideoSizeDimensions(job.videoSize);
+      const restoredSizeRatio = getVideoSizeAspectRatio(job.videoSize);
+      setCustomWidth(restoredDimensions.width);
+      setCustomHeight(restoredDimensions.height);
+      setSizeAspectRatio(isCommonVideoAspectRatio(restoredSizeRatio) ? restoredSizeRatio : '16:9');
       setAspectRatio(job.aspectRatio || '16:9');
       setSeconds(job.seconds);
       setParallelCount(1);
@@ -1263,10 +1445,6 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
       setResolutionMode(resolutionIsPreset ? 'preset' : 'custom');
       if (!resolutionIsPreset) setCustomResolution(String(job.resolution));
       setSizeMode(config.sizes.includes(job.videoSize) ? 'preset' : 'custom');
-      if (!config.sizes.includes(job.videoSize) && job.videoSize !== 'auto') {
-        const [width, height] = job.videoSize.split('x');
-        setCustomWidth(width); setCustomHeight(height);
-      }
       const restoredDurations = getVideoProtocolDurations(restoredProfile);
       setDurationMode(restoredDurations.includes(job.seconds) ? 'preset' : 'custom');
       if (!restoredDurations.includes(job.seconds)) setCustomSeconds(String(job.seconds));
@@ -1288,7 +1466,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     setPromptVariantsOpen(false);
   }, []);
 
-  const parameterButton = 'h-7 shrink-0 rounded-md border border-input bg-background px-2.5 text-xs transition-colors hover:bg-muted';
+  const parameterButton = 'h-8 shrink-0 rounded-md border border-border bg-background px-2.5 text-xs transition-colors hover:bg-muted';
   const canClear = Boolean(prompt.trim() || activePromptVariants.some(value => value.trim()) || referenceImages.length || referenceVideos.length || referenceAudios.length);
   const canSubmit = Boolean(
     prompt.trim()
@@ -1362,139 +1540,115 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
                   {referenceAudios.map((file, index) => <MediaAttachmentTile key={`audio-${file.name}-${file.lastModified}`} file={file} onRemove={() => setReferenceAudios(current => current.filter((_, itemIndex) => itemIndex !== index))} />)}
                 </div>
               )}
-              <Textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder={t('video.promptPlaceholder')} rows={3} className="min-h-24 resize-none rounded-none border-0 bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4" />
+              <div className="mx-3 mt-1 overflow-hidden rounded-xl border-2 border-primary/35 bg-background/70 shadow-sm transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/15 sm:mx-4">
+                <label htmlFor="video-generation-prompt" className="block px-3 pt-3 text-xs font-semibold text-primary sm:px-4 sm:pt-4">{t('video.prompt')}</label>
+                <Textarea id="video-generation-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder={t('video.promptPlaceholder')} rows={6} className="min-h-40 resize-none rounded-none border-0 bg-transparent px-3 pt-2.5 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-2.5" />
+                <p className="px-3 pb-3 text-xs text-muted-foreground sm:px-4" aria-live="polite">{t('workbench.shortcutHint', { submission: shortcutLabels.submission, newline: shortcutLabels.newline })}</p>
+              </div>
               {isGrokVideoModel && hasReferenceMedia && grokReferenceAspectRatio && (
-                <div className="mx-3 flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50/70 px-2.5 py-2 text-left text-[11px] leading-relaxed text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100 sm:mx-4">
+                <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50/70 px-2.5 py-2 text-left text-[11px] leading-relaxed text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100 sm:mx-4">
                   <Info className="mt-0.5 size-3.5 shrink-0" />
                   <span>{t('video.grokReferenceAspectNotice', { ratio: grokReferenceAspectRatio })}</span>
                 </div>
               )}
-              <div className="space-y-2 px-3 pb-2 pt-2 sm:px-4">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
-                  <Select className="w-full sm:w-44" size="sm" value={modelId} onValueChange={handleModelChange} options={models.map(model => ({ value: model.id, label: model.name }))} placeholder={t('common.notConfigured')} />
-                </div>
-                <div data-testid="video-parameter-grid" className="grid gap-x-4 gap-y-3 md:grid-cols-4">
+              <div className="px-3 pb-2 pt-2 sm:px-4">
+                <div className="rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
+                  <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setParametersExpanded(current => !current)} aria-expanded={parametersExpanded} aria-controls="video-generation-params-content">
+                    <span className="flex items-center gap-2 text-sm font-semibold"><SlidersHorizontal className="size-4 text-primary" />{t('workbench.generationParams')}</span>
+                    <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', parametersExpanded && 'rotate-180')} />
+                  </button>
+                  <div id="video-generation-params-content" className={cn('mt-4 space-y-3', !parametersExpanded && 'hidden')}>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">{t('workbench.channel')}</label>
+                        <Select<string> value={modelId} onValueChange={handleModelChange} size="sm" disabled={models.length === 0} options={models.map(model => ({ value: model.id, label: model.name }))} placeholder={t('common.notConfigured')} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">{t('workbench.model')}</label>
+                        <div className="flex min-w-0 gap-1.5">
+                          <Select<string> value={remoteModelId} onValueChange={handleRemoteModelChange} size="sm" disabled={!selectedModel || remoteModelOptions.length === 0} options={remoteModelOptions.map(option => ({ value: option.id, label: option.name === option.id ? option.id : `${option.name} (${option.id})` }))} placeholder={t('workbench.selectRemoteModel')} className="min-w-0 flex-1" />
+                          <button
+                            type="button"
+                            onClick={() => void handleRefreshModels()}
+                            disabled={!selectedModel || refreshingModels}
+                            aria-label={t('workbench.refreshModels')}
+                            title={t('workbench.refreshModels')}
+                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <RefreshCw className={cn('size-3.5', refreshingModels && 'animate-spin')} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div data-testid="video-parameter-grid" className="space-y-4">
                   {resolutionCapability.visible && <div className="min-w-0 space-y-1.5">
                     <span className="flex h-5 items-center gap-1 text-xs font-medium text-muted-foreground"><ScanLine data-testid="video-resolution-icon" className="size-3" />{t('video.resolution')}</span>
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      {resolutionCapability.values.map(value => <button type="button" key={value} className={cn(parameterButton, resolutionMode === 'preset' && activeProtocolResolution === value && 'border-primary bg-primary/10 text-primary')} onClick={() => { setResolution(value); setResolutionMode('preset'); }}>{getVideoResolutionLabel(value)}</button>)}
-                      {resolutionCapability.allowCustom && <Input className="h-7 w-24 shrink-0 rounded-md px-2 text-xs" inputMode="numeric" value={customResolution} placeholder={t('video.customResolution')} onChange={event => { setCustomResolution(event.target.value); const value = Number(event.target.value); if (isValidVideoResolution(value)) { setResolution(value); setResolutionMode('custom'); } }} />}
+                      {resolutionCapability.values.map(value => <button type="button" key={value} className={cn(parameterButton, resolutionMode === 'preset' && activeProtocolResolution === value && 'border-primary bg-primary/10 text-primary')} onClick={() => { setResolution(value); setResolutionMode('preset'); updateVideoSizeFromAspectRatio(sizeAspectRatio, value); }}>{getVideoResolutionLabel(value)}</button>)}
+                      {resolutionCapability.allowCustom && <Input className="h-8 w-24 shrink-0 rounded-md px-2 text-xs" inputMode="numeric" value={customResolution} placeholder={t('video.customResolution')} onChange={event => { setCustomResolution(event.target.value); const value = Number(event.target.value); if (isValidVideoResolution(value)) { setResolution(value); setResolutionMode('custom'); updateVideoSizeFromAspectRatio(sizeAspectRatio, value); } }} />}
                     </div>
                   </div>}
                   <div className="min-w-0 space-y-1.5">
                     <span className="flex h-5 items-center gap-1 text-xs font-medium text-muted-foreground"><Clock3 className="size-3" />{t('video.seconds')}</span>
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       {durationOptions.map(value => <button type="button" key={value} className={cn(parameterButton, durationMode === 'preset' && activeSeconds === value && 'border-primary bg-primary/10 text-primary')} onClick={() => { setSeconds(value); setDurationMode('preset'); }}>{value}s</button>)}
-                      {protocolProfile.parameters.duration.mode === 'range' && <Input className="h-7 w-28 shrink-0 rounded-md px-2 text-xs" inputMode="numeric" value={customSeconds} placeholder={durationPlaceholder} onChange={event => { setCustomSeconds(event.target.value); const value = Number(event.target.value); if (isValidVideoDuration(value)) { setSeconds(value); setDurationMode('custom'); } }} />}
+                      {protocolProfile.parameters.duration.mode === 'range' && <Input className="h-8 w-28 shrink-0 rounded-md px-2 text-xs" inputMode="numeric" value={customSeconds} placeholder={durationPlaceholder} onChange={event => { setCustomSeconds(event.target.value); const value = Number(event.target.value); if (isValidVideoDuration(value)) { setSeconds(value); setDurationMode('custom'); } }} />}
                     </div>
-                  </div>
-                  <div className="min-w-0 space-y-1.5">
-                    <span className="flex h-5 items-center gap-1 text-xs font-medium text-muted-foreground"><Copy className="size-3" />{t('video.quantity')}</span>
-                    <Popover open={parallelPopoverOpen} onOpenChange={setParallelPopoverOpen}>
-                      <PopoverTrigger className={cn(parameterButton, 'inline-flex min-w-16 items-center justify-between gap-2', parallelCount > 1 && 'border-primary bg-primary/10 text-primary')} aria-label={t('video.quantity')}>
-                        <span className="font-medium">x{parallelCount}</span>
-                        <ChevronDown className={cn('size-3 transition-transform', parallelPopoverOpen && 'rotate-180')} />
-                      </PopoverTrigger>
-                      <PopoverContent className="w-56 p-2" align="start">
-                        <div className="grid grid-cols-5 gap-1">
-                          {PARALLEL_COUNT_OPTIONS.map(count => (
-                            <button
-                              type="button"
-                              key={count}
-                              onClick={() => handleParallelCountChange(count)}
-                              className={cn('flex h-8 items-center justify-center rounded-md border border-transparent text-sm hover:bg-muted', parallelCount === count && 'border-primary bg-primary/10 font-medium text-primary')}
-                            >
-                              {count}
-                            </button>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
                   </div>
                   {sizeCapability.visible && <div className="min-w-0 space-y-1.5">
                     <span className="flex h-5 items-center gap-1 text-xs font-medium text-muted-foreground"><Maximize className="size-3" />{t('video.size')}</span>
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <Popover>
-                        <PopoverTrigger aria-label={activeVideoSize || videoSize} className={cn(parameterButton, 'inline-flex items-center gap-1.5', sizeMode === 'preset' && 'border-primary bg-primary/10 text-primary')}>
-                          <span>{activeVideoSize || videoSize}</span>
-                          {activeSizeAspectRatio && <span className="text-[10px] text-muted-foreground">{activeSizeAspectRatio}</span>}
-                          <ChevronDown className="size-3" />
+                    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                      {sizeAspectRatioOptions.map(ratio => {
+                        const selected = sizeAspectRatio === ratio;
+                        return (
+                          <button type="button" key={ratio} aria-label={ratio} onClick={() => updateVideoSizeFromAspectRatio(ratio, activeProtocolResolution)} className={cn('relative flex h-24 min-w-0 flex-col items-center justify-between rounded-md border border-border bg-background px-2.5 py-3 text-center text-xs transition-colors hover:bg-muted', selected && 'border-primary bg-primary/10 font-medium text-primary')}>
+                            {selected && <Check className="absolute right-1.5 top-1.5 size-3" />}
+                            <span className="flex min-h-0 flex-1 items-center justify-center"><VideoAspectRatioPreview ratio={ratio} selected={selected} /></span>
+                            <span className="mt-1 shrink-0 font-medium">{ratio}</span>
+                          </button>
+                        );
+                      })}
+                      {referenceImageSize && <button type="button" aria-label={`${getVideoSizeAspectRatio(referenceImageSize) || t('video.referenceImageSize')} ${referenceImageSize}`} onClick={() => { const dimensions = getVideoSizeDimensions(referenceImageSize); setSizeAspectRatio(getVideoSizeAspectRatio(referenceImageSize) || sizeAspectRatio); setVideoSize(referenceImageSize); setCustomWidth(dimensions.width); setCustomHeight(dimensions.height); setSizeMode('reference'); }} className={cn('relative flex h-24 min-w-0 flex-col items-center justify-between rounded-md border border-border bg-background px-2.5 py-3 text-center text-xs transition-colors hover:bg-muted', sizeMode === 'reference' && 'border-primary bg-primary/10 font-medium text-primary')}>
+                        {sizeMode === 'reference' && <Check className="absolute right-1.5 top-1.5 size-3" />}
+                        <span className="flex min-h-0 flex-1 items-center justify-center"><VideoSizePreview size={referenceImageSize} selected={sizeMode === 'reference'} /></span>
+                        <span className="mt-1 shrink-0 font-medium">{getVideoSizeAspectRatio(referenceImageSize) || t('video.referenceImageSize')}</span>
+                        <span className="shrink-0 text-[10px] leading-4 text-muted-foreground">{referenceImageSize}</span>
+                      </button>}
+                    </div>
+                    {sizeCapability.allowCustom && <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2 pt-1">
+                      <label className="space-y-1"><span className="text-[11px] text-muted-foreground">{t('video.customWidth')}</span><Input className="h-8 w-full rounded-md px-2 text-xs" inputMode="numeric" value={customWidth} placeholder={t('video.customWidth')} onChange={event => { const width = event.target.value; setCustomWidth(width); const value = `${width}x${customHeight}`; if (isValidVideoSize(value)) { setVideoSize(value); setSizeMode('custom'); const ratio = getVideoSizeAspectRatio(value); if (isCommonVideoAspectRatio(ratio)) setSizeAspectRatio(ratio); } }} /></label>
+                      <span className="pb-2 text-sm text-muted-foreground">×</span>
+                      <label className="space-y-1"><span className="text-[11px] text-muted-foreground">{t('video.customHeight')}</span><Input className="h-8 w-full rounded-md px-2 text-xs" inputMode="numeric" value={customHeight} placeholder={t('video.customHeight')} onChange={event => { const height = event.target.value; setCustomHeight(height); const value = `${customWidth}x${height}`; if (isValidVideoSize(value)) { setVideoSize(value); setSizeMode('custom'); const ratio = getVideoSizeAspectRatio(value); if (isCommonVideoAspectRatio(ratio)) setSizeAspectRatio(ratio); } }} /></label>
+                    </div>}
+                  </div>}
+                  {protocolProfile.parameters.aspectRatio.visible && <div className="min-w-0 space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">{t('video.aspectRatio')}</label>
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {protocolAspectRatioOptions.map(value => <button type="button" key={value} aria-label={value} onClick={() => setAspectRatio(value)} className={cn('relative flex h-24 flex-col items-center justify-between rounded-md border border-border bg-background px-2.5 py-3 text-xs transition-colors hover:bg-muted', activeAspectRatio === value && 'border-primary bg-primary/10 font-medium text-primary')}>
+                        {activeAspectRatio === value && <Check className="absolute right-1.5 top-1.5 size-3" />}
+                        <span className="flex min-h-0 flex-1 items-center justify-center"><span className="block shrink-0 rounded-[2px] border-2 border-current" style={getVideoAspectRatioPreviewDimensions(value)} /></span>
+                        <span className="shrink-0 text-[10px] leading-4 text-muted-foreground">{value}</span>
+                      </button>)}
+                    </div>
+                  </div>}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground"><Copy className="size-3" />{t('video.quantity')}</label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Popover open={parallelPopoverOpen} onOpenChange={setParallelPopoverOpen}>
+                        <PopoverTrigger className={cn(parameterButton, 'inline-flex min-w-16 items-center justify-between gap-2', parallelCount > 1 && 'border-primary bg-primary/10 text-primary')} aria-label={t('video.quantity')}>
+                          <span className="font-medium">x{parallelCount}</span>
+                          <ChevronDown className={cn('size-3 transition-transform', parallelPopoverOpen && 'rotate-180')} />
                         </PopoverTrigger>
-                        <PopoverContent className="w-[min(28rem,calc(100vw-2rem))] p-2" align="start">
-                          {sizeAspectRatioOptions.length > 0 && (
-                            <div className="mb-2 border-b border-border pb-2">
-                              <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t('video.aspectRatio')}</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {sizeAspectRatioOptions.map(value => (
-                                  <button
-                                    type="button"
-                                    key={value}
-                                    onClick={() => {
-                                      const matchedSize = sizeCapability.values.find(size => getVideoSizeAspectRatio(size) === value);
-                                      if (matchedSize) {
-                                        setVideoSize(matchedSize);
-                                        setSizeMode('preset');
-                                      }
-                                    }}
-                                    className={cn(parameterButton, activeSizeAspectRatio === value && sizeMode === 'preset' && 'border-primary bg-primary/10 font-medium text-primary')}
-                                  >
-                                    {value}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t('video.dimensions')}</p>
-                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                            {sizeCapability.values.map(value => {
-                              const selected = sizeMode === 'preset' && videoSize === value;
-                              return (
-                                <button
-                                  type="button"
-                                  key={value}
-                                  onClick={() => { setVideoSize(value); setSizeMode('preset'); }}
-                                  className={cn(
-                                    'relative flex min-h-24 min-w-0 flex-col items-center justify-center rounded-lg border border-border bg-card px-2 py-2 text-center text-xs transition-colors hover:border-primary/50 hover:bg-muted/60',
-                                    selected && 'border-primary bg-primary/5 font-medium text-primary',
-                                  )}
-                                >
-                                  {selected && <Check className="absolute right-1.5 top-1.5 size-3.5" />}
-                                  <VideoSizePreview size={value} selected={selected} />
-                                  <span className="mt-1 font-medium">{getVideoSizeDisplayName(value, t)}</span>
-                                  <span className="text-[10px] text-muted-foreground">{value}</span>
-                                </button>
-                              );
-                            })}
-                            {referenceImageSize && <button
-                              type="button"
-                              onClick={() => { setVideoSize(referenceImageSize); setSizeMode('reference'); }}
-                              className={cn(
-                                'relative flex min-h-24 min-w-0 flex-col items-center justify-center rounded-lg border border-border bg-card px-2 py-2 text-center text-xs transition-colors hover:border-primary/50 hover:bg-muted/60',
-                                sizeMode === 'reference' && 'border-primary bg-primary/5 font-medium text-primary',
-                              )}
-                            >
-                              {sizeMode === 'reference' && <Check className="absolute right-1.5 top-1.5 size-3.5" />}
-                              <VideoSizePreview size={referenceImageSize} selected={sizeMode === 'reference'} />
-                              <span className="mt-1 font-medium">{t('video.referenceImageSize')}</span>
-                              <span className="text-[10px] text-muted-foreground">{referenceImageSize}</span>
-                            </button>}
+                        <PopoverContent className="w-56 p-2" align="start">
+                          <div className="grid grid-cols-5 gap-1">
+                            {PARALLEL_COUNT_OPTIONS.map(count => <button type="button" key={count} onClick={() => handleParallelCountChange(count)} className={cn('flex h-8 items-center justify-center rounded-md border border-transparent text-sm hover:bg-muted', parallelCount === count && 'border-primary bg-primary/10 font-medium text-primary')}>{count}</button>)}
                           </div>
                         </PopoverContent>
                       </Popover>
-                      {sizeCapability.allowCustom && <div className="flex items-center gap-1">
-                        <Input className="h-7 w-20 shrink-0 rounded-md px-2 text-xs sm:w-24" inputMode="numeric" value={customWidth} placeholder={t('video.customWidth')} onChange={event => { const width = event.target.value; setCustomWidth(width); const value = `${width}x${customHeight}`; if (isValidVideoSize(value)) { setVideoSize(value); setSizeMode('custom'); } }} />
-                        <span className="text-xs text-muted-foreground">×</span>
-                        <Input className="h-7 w-20 shrink-0 rounded-md px-2 text-xs sm:w-24" inputMode="numeric" value={customHeight} placeholder={t('video.customHeight')} onChange={event => { const height = event.target.value; setCustomHeight(height); const value = `${customWidth}x${height}`; if (isValidVideoSize(value)) { setVideoSize(value); setSizeMode('custom'); } }} />
-                      </div>}
                     </div>
-                  </div>}
-                  {protocolProfile.parameters.aspectRatio.visible && <div className="min-w-0 space-y-1.5">
-                    <span className="flex h-5 items-center gap-1 text-xs font-medium text-muted-foreground"><Maximize className="size-3" />{t('video.aspectRatio')}</span>
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      {protocolProfile.parameters.aspectRatio.values.map(value => <button type="button" key={value} className={cn(parameterButton, activeAspectRatio === value && 'border-primary bg-primary/10 text-primary')} onClick={() => setAspectRatio(value)}>{value}</button>)}
-                    </div>
-                  </div>}
+                  </div>
+                </div>
+                  </div>
                 </div>
               </div>
               {parallelCount > 1 && (
@@ -1542,7 +1696,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
                   </Button>
                 </div>
               )}
-              <div className="flex justify-end gap-2 px-3 pb-3 sm:px-4">
+              <div className="sticky bottom-0 z-20 ml-auto flex w-full justify-end gap-2 border-t border-border/70 bg-muted/95 px-3 py-2 backdrop-blur-sm sm:w-auto sm:px-4">
                 <PromptSubmissionShortcutMenu value={submissionShortcut} isSmallViewport={isSmallViewport} onValueChange={updateSubmissionShortcut} />
                 <Button type="button" variant="ghost" size="icon" onClick={handleOptimize} disabled={!prompt.trim() || !promptOptimizeUsable} title={promptOptimizeUsable ? t('workbench.optimizePrompt') : promptOptimizeAvailable ? t('workbench.enablePromptOptimizeSetting') : t('workbench.configureDefaultTextModel')}><Sparkles className="size-4" /></Button>
                 <Button type="button" variant="outline" size="icon" onClick={handleClearDraft} disabled={!canClear} title={t('workbench.clearDraft')}><X className="size-5" /></Button>
@@ -1590,14 +1744,15 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
                 </Button>
               </div>
               <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 border-y py-2 text-xs sm:grid-cols-4">
-                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.modelName')}</dt><dd className="truncate font-medium text-foreground" title={job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}>{job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('workbench.channel')}</dt><dd className="truncate font-medium text-foreground" title={job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}>{job.modelName || models.find(model => model.id === job.modelId)?.name || job.modelId}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('workbench.model')}</dt><dd className="truncate font-mono text-[11px] font-medium text-foreground" title={getVideoJobApiModelId(job, models)}>{getVideoJobApiModelId(job, models)}</dd></div>
                 <div className="min-w-0"><dt className="text-muted-foreground">{t('video.resolution')}</dt><dd className="font-medium text-foreground">{getVideoResolutionLabel(job.resolution)}</dd></div>
-                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.totalDuration')}</dt><dd className="font-medium text-foreground">{formatVideoJobDuration(job.durationMs, job.durationUpdatedAt, job.status === '排队中' || job.status === 'processing', job.createdAt, job.completedAt, durationNowMs, locale)}</dd></div>
                 <div className="min-w-0"><dt className="text-muted-foreground">{t('video.seconds')}</dt><dd className="flex items-center gap-1 font-medium text-foreground"><Clock3 className="size-3" />{job.seconds}s</dd></div>
-                <div className="col-span-2 min-w-0 sm:col-span-4"><dt className="text-muted-foreground">{t('video.modelId')}</dt><dd className="select-all break-all font-mono text-[11px] text-foreground">{getVideoJobApiModelId(job, models)}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.size')}</dt><dd className="font-medium text-foreground">{job.videoSize || '--'}</dd></div>
+                <div className="min-w-0"><dt className="text-muted-foreground">{t('video.totalDuration')}</dt><dd className="font-medium text-foreground">{formatVideoJobDuration(job.durationMs, job.durationUpdatedAt, job.status === '排队中' || job.status === 'processing', job.createdAt, job.completedAt, durationNowMs, locale)}</dd></div>
                 <div className="col-span-2 min-w-0 sm:col-span-4"><dt className="text-muted-foreground">{t('video.taskId')}</dt><dd className="select-all break-all font-mono text-[11px] text-foreground">{job.serverTaskId || t('video.taskIdPending')}</dd></div>
               </dl>
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span>{job.videoSize}</span>{job.protocol === 'xai' && job.aspectRatio && <span>{job.aspectRatio}</span>}<span>{t('video.createdAt', { time: formatJobTime(job.createdAt, locale) })}</span></div>
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">{job.protocol === 'xai' && job.aspectRatio && <span>{job.aspectRatio}</span>}<span>{t('video.createdAt', { time: formatJobTime(job.createdAt, locale) })}</span></div>
               {job.error && <p className="rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">{job.error}</p>}
               <div className="flex flex-wrap gap-2">
                 {job.status === 'completed' && (job.videoUrl || (getVideoJobSourceUrl(job) && !job.cached)) && <Button variant="outline" size="sm" className="gap-2" disabled={downloadingVideoJobIds.has(job.id)} onClick={() => void handleDownloadVideo(job)}>{downloadingVideoJobIds.has(job.id) ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}{t('video.download')}</Button>}
