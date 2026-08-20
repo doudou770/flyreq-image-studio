@@ -31,50 +31,19 @@ Built from [tianjiangqiji/nova-image-studio](https://github.com/tianjiangqiji/no
 - **Fast setup from links:** Prefill image, video, or text models from a URL, then save only after user confirmation.
 - **Reliable, traceable jobs:** Persistent queues, live WebSocket updates, polling fallback, failure diagnostics, and local backup are built in.
 
-## Supported Image and Video Models
-
-| Type | Provider / protocol | Model ID / description |
-| :--- | :--- | :--- |
-| **Image** | Banana family | `gemini-3-pro-image`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`... |
-| **Image** | GPT family | `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`... |
-| **Image** | Grok family | `grok-imagine-image`, `grok-imagine-image-quality`... |
-| **Image** | Custom | Custom model IDs are supported |
-| **Video** | New API | Generic video protocol with custom model IDs |
-| **Video** | OpenAI Videos (Sora) | `seedance-2.0-431-720p`、`seedance-2.0-1080p`... |
-| **Video** | xAI Videos | `grok-imagine-video`, `grok-imagine-video-1.5`... |
-
-## Sponsor
-
-<table>
-  <tr>
-    <td width="180" align="center">
-      <a href="https://flyreq.com">
-        <img src="frontend/public/icon-512.png" width="112" alt="FlyReq" />
-      </a>
-    </td>
-    <td>
-      <strong>Thanks to <a href="https://flyreq.com">FlyReq</a> for sponsoring this project.</strong><br /><br />
-      FlyReq is an AI model API relay platform focused on high-discount access for developers and teams looking for a cost-effective way to connect the models they need.<br /><br />
-      New registrations receive trial credit for validating model capabilities and integration flows. Visit <a href="https://flyreq.com">flyreq.com</a> to learn more and get started.
-    </td>
-  </tr>
-</table>
-
----
-
 ## Product Preview
 
 ### Image Workspace
 
-| Wide | Narrow | Mobile |
-|:---:|:---:|:---:|
-| ![Wide image workspace](doc/生图工作台宽屏.png) | ![Narrow image workspace](doc/生图工作台窄屏.png) | ![Mobile image workspace](doc/生图工作台手机版.png) |
+| Wide | Mobile |
+|:---:|:---:|
+| ![Wide image workspace](doc/生图工作台宽屏.png) | ![Mobile image workspace](doc/生图工作台手机版.png) |
 
 ### Video Workspace
 
-| Wide | Narrow | Mobile |
-|:---:|:---:|:---:|
-| ![Wide Video workspace](doc/视频工作台宽屏.png) | ![Narrow Video workspace](doc/视频工作台窄屏.png) | ![Mobile Video workspace](doc/视频工作台手机版.png) |
+| Wide | Mobile |
+|:---:|:---:|
+| ![Wide Video workspace](doc/视频工作台宽屏.png) | ![Mobile Video workspace](doc/视频工作台手机版.png) |
 
 ### Agent Mode
 
@@ -112,6 +81,39 @@ Built from [tianjiangqiji/nova-image-studio](https://github.com/tianjiangqiji/no
 
 ---
 
+## Sponsor
+
+<table>
+  <tr>
+    <td width="180" align="center">
+      <a href="https://flyreq.com">
+        <img src="frontend/public/icon-512.png" width="112" alt="FlyReq" />
+      </a>
+    </td>
+    <td>
+      <strong>Thanks to <a href="https://flyreq.com">FlyReq</a> for sponsoring this project.</strong><br /><br />
+      FlyReq is an AI model API relay platform focused on high-discount access for developers and teams looking for a cost-effective way to connect the models they need.<br /><br />
+      New registrations receive trial credit for validating model capabilities and integration flows. Visit <a href="https://flyreq.com">flyreq.com</a> to learn more and get started.
+    </td>
+  </tr>
+</table>
+
+---
+
+## Supported Image and Video Models
+
+| Type | Provider / protocol | Model ID / description |
+| :--- | :--- | :--- |
+| **Image** | Banana family | `gemini-3-pro-image`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`... |
+| **Image** | GPT family | `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`... |
+| **Image** | Grok family | `grok-imagine-image`, `grok-imagine-image-quality`... |
+| **Image** | Custom | Custom model IDs are supported |
+| **Video** | New API | Generic video protocol with custom model IDs |
+| **Video** | OpenAI Videos (Sora) | `seedance-2.0-431-720p`, `seedance-2.0-1080p`... |
+| **Video** | xAI Videos | `grok-imagine-video`, `grok-imagine-video-1.5`... |
+
+---
+
 ## Workflows
 
 | Workflow | What it does |
@@ -122,140 +124,6 @@ Built from [tianjiangqiji/nova-image-studio](https://github.com/tianjiangqiji/no
 | Reverse Prompt | Stream a prompt analysis from an uploaded image through a configured text model. |
 | GIF Generation | Generate multiple frames, assemble a grid, and encode the GIF in the browser with `gifenc`. |
 | Infinite Canvas | Arrange images and text on a visual workspace, then pass connected context into image generation. |
-
-## Supported Models and Protocols
-
-| Type | Built-in presets or protocol | Available capabilities |
-| --- | --- | --- |
-| Google image models | Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview, Gemini 3.1 Flash Image Preview, Gemini 3.1 Flash Lite Image | Text-to-image, image-to-image, model-specific reference-image limits, 1K to 4K output, and optional `temperature`. |
-| OpenAI image models | GPT Image 2 and OpenAI Images-compatible endpoints | GPT Image 2 supports text-to-image, image-to-image, up to 16 references, 1K to 4K, quality, style, transparent backgrounds, PNG/JPEG/WebP, custom sizes, and streaming image requests. Compatible gateways expose the parameters their upstream supports. |
-| xAI image models | Grok Imagine and Grok Imagine Quality | xAI Imagine request adapter, 1K or 2K output, and preset-supported aspect ratios. |
-| Text models | Google `generateContent` and OpenAI Responses-compatible endpoints | Reverse prompting, prompt optimization, and Agent chat-to-image planning. |
-| Custom models | `google` or `openai` compatible services | Custom model ID, base URL, API key, reference-image limit, output limit, and capability toggles. |
-
-Presets define a safe capability boundary, not a provider lock-in. Supply the actual base URL, model ID, and API key for a compatible service. Google and xAI image APIs do not receive `stream=true`; OpenAI Images-compatible GPT Image 2 requests can enable streaming by default.
-
-### Why It Is Different
-
-- **Intent-aware Agent routing:** The Agent considers the requested resolution, available image models, and reference-image aspect ratio, then normalizes settings to the selected model's supported range.
-- **One configuration surface:** Deployment variables provide a branded first-run experience, while external links can hand users a model draft that still requires confirmation.
-- **Compatibility with diagnostics:** Server-side base-URL rewrites route public settings to internal services without changing what users saved. Upstream response bodies are retained for investigation.
-- **Recoverable job system:** SQLite-backed jobs, WebSocket updates, reconnect with polling fallback, on-disk outputs, retry, download, backup, and restore are built in.
-
-## Prompt Gallery
-
-`PROMPT_GALLERY_MODE` controls how the gallery is exposed:
-
-- `1`: Always visible.
-- `2`: Private, protected by `PROMPT_GALLERY_PASSWORD`.
-- `3`: Hidden.
-
-Gallery content lives in `backend/prompts.json` and supports filtering through `backend/blacklist.json`.
-
-## External Model Configuration Links
-
-External sites can link to FlyReq Image with a `provider` query parameter containing one image, text, or video model configuration as JSON. The application opens Settings, fills the corresponding model draft, removes all configuration parameters from the address bar, and waits for the user to save. Importing a link never writes configuration automatically.
-
-Use URL-encoded JSON in production. The raw links below are readable examples; generate a production value with `encodeURIComponent(JSON.stringify(payload))`.
-
-### Image model example
-
-```json
-{
-  "type": "image",
-  "preset": "gpt-image-2",
-  "provider": "openai",
-  "modelKey": "flyreq-gpt-image-2",
-  "name": "FlyReq",
-  "modelId": "gpt-image-2",
-  "baseUrl": "https://flyreq.com",
-  "apiKey": "YOUR_API_KEY",
-  "maxRefImages": 16,
-  "maxOutputSize": "4K",
-  "supportsTemperature": false,
-  "streamImages": true
-}
-```
-
-```text
-https://image.flyreq.com/en/?provider={"type":"image","preset":"gpt-image-2","provider":"openai","modelKey":"flyreq-gpt-image-2","name":"FlyReq","modelId":"gpt-image-2","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","maxRefImages":16,"maxOutputSize":"4K"}
-```
-
-URL-encoded JSON:
-```text
-https://image.flyreq.com/zh/?provider=%7B%22type%22%3A%22image%22%2C%22preset%22%3A%22gpt-image-2%22%2C%22provider%22%3A%22openai%22%2C%22modelKey%22%3A%22flyreq-gpt-image-2%22%2C%22name%22%3A%22FlyReq%22%2C%22modelId%22%3A%22gpt-image-2%22%2C%22baseUrl%22%3A%22https%3A%2F%2Fflyreq.com%22%2C%22apiKey%22%3A%22YOUR_API_KEY%22%2C%22maxRefImages%22%3A16%2C%22maxOutputSize%22%3A%224K%22%7D
-```
-
-When complete, the imported image model becomes the text-to-image and image-to-image default.
-
-### Text model example
-
-```json
-{
-  "type": "text",
-  "provider": "openai",
-  "modelKey": "flyreq-text-default",
-  "name": "FlyReq Text",
-  "modelId": "gpt-5.4-mini",
-  "baseUrl": "https://flyreq.com",
-  "apiKey": "YOUR_API_KEY",
-  "note": "OpenAI Responses-compatible text model"
-}
-```
-
-```text
-https://image.flyreq.com/en/?provider={"type":"text","provider":"openai","modelKey":"flyreq-text-default","name":"FlyReq Text","modelId":"gpt-5.4-mini","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","note":"OpenAI Responses-compatible text model"}
-```
-
-When complete, the imported text model becomes the initial default for Agent, reverse prompt, prompt optimization, and image description. Users can change each default before saving. Text models support `openai` and `google`.
-
-### Video model example
-
-```json
-{
-  "type": "video",
-  "protocol": "openai",
-  "modelKey": "flyreq-video-default",
-  "name": "FlyReq Video",
-  "modelId": "sora-2",
-  "baseUrl": "https://api.openai.com",
-  "apiKey": "YOUR_API_KEY"
-}
-```
-
-```text
-https://image.flyreq.com/en/?provider={"type":"video","protocol":"openai","modelKey":"flyreq-video-default","name":"FlyReq Video","modelId":"sora-2","baseUrl":"https://api.openai.com","apiKey":"YOUR_API_KEY"}
-```
-
-When complete, the imported video model becomes the video-generation default. Video links accept the `new-api`, `openai`, and `xai` protocols. Use the explicit `protocol` field for new links; the historical `provider=openai` form remains mapped to the legacy video endpoint.
-
-All standard backend logs are mirrored to a daily JSONL file while remaining available on the console. Files are written to `backend/logs/application/application-YYYY-MM-DD.log` and include server startup, task queues, image/video processing, cleanup, and WebSocket events. Application file logging is enabled by default; set `FLYREQ_FILE_LOG_ENABLED=false` to disable it or use `FLYREQ_LOG_DIR` to change the directory.
-
-Every image-upstream generation request and response for OpenAI, xAI, or Google is also emitted as a structured `[image-upstream]` log and appended to a daily JSONL file at `backend/logs/image-upstream/image-upstream-YYYY-MM-DD.log` using the process-local date. The log includes the method, URL, headers, body, HTTP status, response headers/body, and context such as the model, mode, output size, and aspect ratio. API keys, authorization headers, cookies, and signed-URL query parameters are sanitized. Request data URLs and multipart images, plus OpenAI `b64_json` and Gemini `inlineData.data` response payloads, are replaced with MIME or byte-count summaries, so raw image data is never written to logs. Logging is enabled by default and can be disabled with `FLYREQ_IMAGE_UPSTREAM_LOG_ENABLED=false`. Ordinary response bodies are limited to 65,536 characters by default and can be adjusted with `FLYREQ_IMAGE_UPSTREAM_LOG_MAX_CHARS`; the directory can be changed with `FLYREQ_IMAGE_UPSTREAM_LOG_DIR`.
-
-Every video-upstream request and response for creation, polling, and result download is also written as a structured `[video-upstream]` log and appended to a daily JSONL file at `backend/logs/video-upstream/video-upstream-YYYY-MM-DD.log` using the process-local date. Every stage record includes the local `taskId`, display model name, upstream model ID, resolution, and current elapsed time. A final `task-summary` record captures the terminal status and exact `totalDurationMs` when a task completes, fails, or is cancelled. The log also includes the stage, method, URL, HTTP status, headers, request parameters, response body, and task context. API keys, authorization headers, cookies, and signed-URL query parameters are sanitized; data URLs and multipart media are reduced to type, name, and byte-count metadata. Responses with a `video/*` content type are represented only by a media-type and byte-count placeholder, so video bodies are never written to logs. Logging is enabled by default and can be disabled with `FLYREQ_VIDEO_UPSTREAM_LOG_ENABLED=false`. Ordinary response bodies are limited to 65,536 characters by default and can be adjusted with `FLYREQ_VIDEO_UPSTREAM_LOG_MAX_CHARS`; the directory can be changed with `FLYREQ_VIDEO_UPSTREAM_LOG_DIR`. Docker Compose persists `/app/backend/logs` under host `./logs` and defaults daily rotation to the `Asia/Shanghai` timezone.
-
-### Fields and behavior
-
-| Field | Description |
-| --- | --- |
-| `type` | Required model kind: `image`, `text`, or `video`. Omitted values default to `image` for compatibility. |
-| `modelKey` | Optional stable model ID. Updates an existing model with the same ID. |
-| `provider` / `protocol` | `openai` or `google` for image/text models; video models support `new-api`, `openai`, or `xai`. New video links must use `protocol`; historical `provider=openai` links retain legacy endpoint behavior. |
-| `name` | Display name. |
-| `modelId` | Upstream model ID. |
-| `baseUrl` | Upstream base URL. |
-| `apiKey` | API key. |
-| `preset` | Image only. Optional built-in preset such as `gpt-image-2`. |
-| `maxRefImages` | Image only. Maximum reference-image count. |
-| `maxOutputSize` | Image only: `512`, `1K`, `2K`, or `4K`. |
-| `supportsTemperature` | Image only. Enables Gemini `temperature` when supported upstream. |
-| `streamImages` | Image only. Enables streaming OpenAI Images-compatible requests. |
-| `note` | Text only. Optional protocol or deployment description. |
-
-Matching first uses `modelKey`, then `name + modelId + baseUrl`; otherwise, a new draft is added. Incomplete payloads are retained as inactive drafts so the user can add missing fields. Legacy `configureModel=1&type=...` multi-parameter links remain supported for all three types, and every recognized parameter is removed after parsing.
-
-The API key is briefly present in browser history, proxy logs, chat previews, and referrer metadata before the application cleans the URL. Prefer short-lived keys or omit `apiKey` and let the user enter it locally.
 
 ## Deployment
 
@@ -491,6 +359,158 @@ The built-in `GITHUB_TOKEN` requires Actions permission to write `contents` and 
 
 </details>
 
+## Supported Models and Protocols
+
+| Type | Built-in presets or protocol | Available capabilities |
+| --- | --- | --- |
+| Google image models | Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview, Gemini 3.1 Flash Image Preview, Gemini 3.1 Flash Lite Image | Text-to-image, image-to-image, model-specific reference-image limits, 1K to 4K output, and optional `temperature`. |
+| OpenAI image models | GPT Image 2 and OpenAI Images-compatible endpoints | GPT Image 2 supports text-to-image, image-to-image, up to 16 references, 1K to 4K, quality, style, transparent backgrounds, PNG/JPEG/WebP, custom sizes, and streaming image requests. Compatible gateways expose the parameters their upstream supports. |
+| xAI image models | Grok Imagine and Grok Imagine Quality | xAI Imagine request adapter, 1K or 2K output, and preset-supported aspect ratios. |
+| Text models | Google `generateContent` and OpenAI Responses-compatible endpoints | Reverse prompting, prompt optimization, and Agent chat-to-image planning. |
+| Custom models | `google` or `openai` compatible services | Custom model ID, base URL, API key, reference-image limit, output limit, and capability toggles. |
+
+Presets define a safe capability boundary, not a provider lock-in. Supply the actual base URL, model ID, and API key for a compatible service. Google and xAI image APIs do not receive `stream=true`; OpenAI Images-compatible GPT Image 2 requests can enable streaming by default.
+
+### Why It Is Different
+
+- **Intent-aware Agent routing:** The Agent considers the requested resolution, available image models, and reference-image aspect ratio, then normalizes settings to the selected model's supported range.
+- **One configuration surface:** Deployment variables provide a branded first-run experience, while external links can hand users a model draft that still requires confirmation.
+- **Compatibility with diagnostics:** Server-side base-URL rewrites route public settings to internal services without changing what users saved. Upstream response bodies are retained for investigation.
+- **Recoverable job system:** SQLite-backed jobs, WebSocket updates, reconnect with polling fallback, on-disk outputs, retry, download, backup, and restore are built in.
+
+## Prompt Gallery
+
+`PROMPT_GALLERY_MODE` controls how the gallery is exposed:
+
+- `1`: Always visible.
+- `2`: Private, protected by `PROMPT_GALLERY_PASSWORD`.
+- `3`: Hidden.
+
+Gallery content lives in `backend/prompts.json` and supports filtering through `backend/blacklist.json`.
+
+## External Model Configuration Links
+
+External sites can link to FlyReq Image with a `provider` query parameter containing one image, text, or video model configuration as JSON. The application opens Settings, fills the corresponding model draft, removes all configuration parameters from the address bar, and waits for the user to save. Importing a link never writes configuration automatically.
+
+Use URL-encoded JSON in production. The raw links below are readable examples; generate a production value with `encodeURIComponent(JSON.stringify(payload))`.
+
+### Image model example
+
+```json
+{
+  "type": "image",
+  "preset": "gpt-image-2",
+  "provider": "openai",
+  "modelKey": "flyreq-gpt-image-2",
+  "name": "FlyReq",
+  "modelId": "gpt-image-2",
+  "baseUrl": "https://flyreq.com",
+  "apiKey": "YOUR_API_KEY",
+  "maxRefImages": 16,
+  "maxOutputSize": "4K",
+  "supportsTemperature": false,
+  "streamImages": true
+}
+```
+
+```text
+https://image.flyreq.com/en/?provider={"type":"image","preset":"gpt-image-2","provider":"openai","modelKey":"flyreq-gpt-image-2","name":"FlyReq","modelId":"gpt-image-2","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","maxRefImages":16,"maxOutputSize":"4K"}
+```
+
+URL-encoded JSON:
+```text
+https://image.flyreq.com/zh/?provider=%7B%22type%22%3A%22image%22%2C%22preset%22%3A%22gpt-image-2%22%2C%22provider%22%3A%22openai%22%2C%22modelKey%22%3A%22flyreq-gpt-image-2%22%2C%22name%22%3A%22FlyReq%22%2C%22modelId%22%3A%22gpt-image-2%22%2C%22baseUrl%22%3A%22https%3A%2F%2Fflyreq.com%22%2C%22apiKey%22%3A%22YOUR_API_KEY%22%2C%22maxRefImages%22%3A16%2C%22maxOutputSize%22%3A%224K%22%7D
+```
+
+When complete, the imported image model becomes the text-to-image and image-to-image default.
+
+### Text model example
+
+```json
+{
+  "type": "text",
+  "provider": "openai",
+  "modelKey": "flyreq-text-default",
+  "name": "FlyReq Text",
+  "modelId": "gpt-5.4-mini",
+  "baseUrl": "https://flyreq.com",
+  "apiKey": "YOUR_API_KEY",
+  "note": "OpenAI Responses-compatible text model"
+}
+```
+
+```text
+https://image.flyreq.com/en/?provider={"type":"text","provider":"openai","modelKey":"flyreq-text-default","name":"FlyReq Text","modelId":"gpt-5.4-mini","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","note":"OpenAI Responses-compatible text model"}
+```
+
+When complete, the imported text model becomes the initial default for Agent, reverse prompt, prompt optimization, and image description. Users can change each default before saving. Text models support `openai` and `google`.
+
+### Video model example
+
+```json
+{
+  "type": "video",
+  "protocol": "openai",
+  "modelKey": "flyreq-video-default",
+  "name": "FlyReq Video",
+  "modelId": "sora-2",
+  "baseUrl": "https://api.openai.com",
+  "apiKey": "YOUR_API_KEY"
+}
+```
+
+```text
+https://image.flyreq.com/en/?provider={"type":"video","protocol":"openai","modelKey":"flyreq-video-default","name":"FlyReq Video","modelId":"sora-2","baseUrl":"https://api.openai.com","apiKey":"YOUR_API_KEY"}
+```
+
+When complete, the imported video model becomes the video-generation default. Video links accept the `new-api`, `openai`, and `xai` protocols. Use the explicit `protocol` field for new links; the historical `provider=openai` form remains mapped to the legacy video endpoint.
+
+All standard backend logs are mirrored to a daily JSONL file while remaining available on the console. Files are written to `backend/logs/application/application-YYYY-MM-DD.log` and include server startup, task queues, image/video processing, cleanup, and WebSocket events. Application file logging is enabled by default; set `FLYREQ_FILE_LOG_ENABLED=false` to disable it or use `FLYREQ_LOG_DIR` to change the directory.
+
+Every image-upstream generation request and response for OpenAI, xAI, or Google is also emitted as a structured `[image-upstream]` log and appended to a daily JSONL file at `backend/logs/image-upstream/image-upstream-YYYY-MM-DD.log` using the process-local date. The log includes the method, URL, headers, body, HTTP status, response headers/body, and context such as the model, mode, output size, and aspect ratio. API keys, authorization headers, cookies, and signed-URL query parameters are sanitized. Request data URLs and multipart images, plus OpenAI `b64_json` and Gemini `inlineData.data` response payloads, are replaced with MIME or byte-count summaries, so raw image data is never written to logs. Logging is enabled by default and can be disabled with `FLYREQ_IMAGE_UPSTREAM_LOG_ENABLED=false`. Ordinary response bodies are limited to 65,536 characters by default and can be adjusted with `FLYREQ_IMAGE_UPSTREAM_LOG_MAX_CHARS`; the directory can be changed with `FLYREQ_IMAGE_UPSTREAM_LOG_DIR`.
+
+Every video-upstream request and response for creation, polling, and result download is also written as a structured `[video-upstream]` log and appended to a daily JSONL file at `backend/logs/video-upstream/video-upstream-YYYY-MM-DD.log` using the process-local date. Every stage record includes the local `taskId`, display model name, upstream model ID, resolution, and current elapsed time. A final `task-summary` record captures the terminal status and exact `totalDurationMs` when a task completes, fails, or is cancelled. The log also includes the stage, method, URL, HTTP status, headers, request parameters, response body, and task context. API keys, authorization headers, cookies, and signed-URL query parameters are sanitized; data URLs and multipart media are reduced to type, name, and byte-count metadata. Responses with a `video/*` content type are represented only by a media-type and byte-count placeholder, so video bodies are never written to logs. Logging is enabled by default and can be disabled with `FLYREQ_VIDEO_UPSTREAM_LOG_ENABLED=false`. Ordinary response bodies are limited to 65,536 characters by default and can be adjusted with `FLYREQ_VIDEO_UPSTREAM_LOG_MAX_CHARS`; the directory can be changed with `FLYREQ_VIDEO_UPSTREAM_LOG_DIR`. Docker Compose persists `/app/backend/logs` under host `./logs` and defaults daily rotation to the `Asia/Shanghai` timezone.
+
+### Fields and behavior
+
+| Field | Description |
+| --- | --- |
+| `type` | Required model kind: `image`, `text`, or `video`. Omitted values default to `image` for compatibility. |
+| `modelKey` | Optional stable model ID. Updates an existing model with the same ID. |
+| `provider` / `protocol` | `openai` or `google` for image/text models; video models support `new-api`, `openai`, or `xai`. New video links must use `protocol`; historical `provider=openai` links retain legacy endpoint behavior. |
+| `name` | Display name. |
+| `modelId` | Upstream model ID. |
+| `baseUrl` | Upstream base URL. |
+| `apiKey` | API key. |
+| `preset` | Image only. Optional built-in preset such as `gpt-image-2`. |
+| `maxRefImages` | Image only. Maximum reference-image count. |
+| `maxOutputSize` | Image only: `512`, `1K`, `2K`, or `4K`. |
+| `supportsTemperature` | Image only. Enables Gemini `temperature` when supported upstream. |
+| `streamImages` | Image only. Enables streaming OpenAI Images-compatible requests. |
+| `note` | Text only. Optional protocol or deployment description. |
+
+Matching first uses `modelKey`, then `name + modelId + baseUrl`; otherwise, a new draft is added. Incomplete payloads are retained as inactive drafts so the user can add missing fields. Legacy `configureModel=1&type=...` multi-parameter links remain supported for all three types, and every recognized parameter is removed after parsing.
+
+The API key is briefly present in browser history, proxy logs, chat previews, and referrer metadata before the application cleans the URL. Prefer short-lived keys or omit `apiKey` and let the user enter it locally.
+
+## Task System
+
+- Jobs enter a server-side queue with configurable concurrency and rate limits.
+- Browsers receive job and queue changes through WebSocket, reconnect automatically, and fall back to HTTP polling after repeated failures.
+- Generated files are stored on disk and served from `/api/flyreq/images/:taskId/:index`.
+- Jobs expire after 12 hours and are cleaned up automatically.
+- A restart marks incomplete jobs as failed and removes their partial output, preventing orphaned tasks.
+
+## Engineering and UX
+
+- Installable PWA through `next-pwa`.
+- Responsive desktop, tablet, and mobile layouts.
+- Light and dark themes plus wide and narrow workspace layouts.
+- Task history persisted with IndexedDB and localStorage.
+- One-click backup and restore through JSZip, including partial recovery when older settings are incompatible.
+- Virtualized lazy loading for historical images through `@tanstack/react-virtual`.
+- Random images, toast notifications, and confirmation dialogs.
+
 ### Important Environment Variables
 
 | Variable | Required | Default | Description |
@@ -568,59 +588,6 @@ The default video model uses `FLYREQ_DEFAULT_VIDEO_MODEL_PROTOCOL=openai` and `F
 - `xai`: xAI Videos, using `POST /v1/videos/generations`.
 
 When changing the protocol, also configure `FLYREQ_DEFAULT_VIDEO_MODEL_BASE_URL` and `FLYREQ_DEFAULT_VIDEO_MODEL_MODEL_ID` for that upstream service. Protocol capabilities are defined in `backend/video-protocol-capabilities.json` and can be overridden through `FLYREQ_VIDEO_PROTOCOL_CONFIG_OVERRIDES`.
-
-## Task System
-
-- Jobs enter a server-side queue with configurable concurrency and rate limits.
-- Browsers receive job and queue changes through WebSocket, reconnect automatically, and fall back to HTTP polling after repeated failures.
-- Generated files are stored on disk and served from `/api/flyreq/images/:taskId/:index`.
-- Jobs expire after 12 hours and are cleaned up automatically.
-- A restart marks incomplete jobs as failed and removes their partial output, preventing orphaned tasks.
-
-## Engineering and UX
-
-- Installable PWA through `next-pwa`.
-- Responsive desktop, tablet, and mobile layouts.
-- Light and dark themes plus wide and narrow workspace layouts.
-- Task history persisted with IndexedDB and localStorage.
-- One-click backup and restore through JSZip, including partial recovery when older settings are incompatible.
-- Virtualized lazy loading for historical images through `@tanstack/react-virtual`.
-- Random images, toast notifications, and confirmation dialogs.
-
-## Project Structure
-
-```text
-flyreq-image-studio/
-├── frontend/                 # Next.js frontend (React 19 + TypeScript)
-│   ├── src/
-│   │   ├── app/              # Root layout and pages
-│   │   ├── components/       # Feature components and shadcn/ui primitives
-│   │   │   ├── workspace/    # Workspace shell, tabs, header, and results
-│   │   │   ├── agent/        # Agent-mode components
-│   │   │   └── ui/           # UI primitives
-│   │   ├── hooks/            # Queue, Agent, GIF, and other hooks
-│   │   ├── lib/              # Client utilities, API clients, WebSocket, backup
-│   │   └── test/             # Vitest configuration and tests
-│   ├── public/               # PWA icons and static assets
-│   ├── next.config.ts        # Static export and next-pwa configuration
-│   ├── package.json
-│   └── vitest.config.ts
-├── backend/
-│   ├── server.js             # Node server: HTTP, WS, SQLite, and task queue
-│   ├── prompts.json          # Prompt Gallery content
-│   ├── blacklist.json        # Sensitive-word list
-│   ├── .env.example
-│   └── package.json
-├── scripts/
-│   ├── pack.js               # Build and package out.zip
-│   └── generate-icons.js     # Generate PWA icons
-├── package.json              # npm workspaces root
-├── LICENSE                   # AGPL-3.0 license
-├── README.md
-└── README.en.md
-```
-
-Production builds are emitted to `frontend/out/` and served statically by `backend/server.js`.
 
 ## API
 

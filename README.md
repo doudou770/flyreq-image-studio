@@ -29,50 +29,23 @@ FlyReq Image Studio（简称 FlyReq Image）是一个面向个人与团队的 AI
 - **外链快速配置**：通过 URL 预填图片、视频或文本模型，确认后再保存
 - **任务稳定可追踪**：队列持久化、WebSocket 实时同步、断线轮询、失败诊断和本地备份一应俱全
 
-## 🧩 支持的图片与视频模型
 
-| 类型 | 厂商/协议 | 模型 ID / 说明 |
-| :--- | :--- | :--- |
-| **图片** | Banana 系列 | `gemini-3-pro-image`、`gemini-3.1-flash-image`、`gemini-3.1-flash-lite-image`... |
-| **图片** | GPT 系列 | `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`... |
-| **图片** | Grok 系列 | `grok-imagine-image`、`grok-imagine-image-quality` ...|
-| **图片** | 自定义 | 支持自定义模型 ID |
-| **视频** | New API | 通用视频协议，支持自定义模型 ID |
-| **视频** | OpenAI Videos (Sora) | `seedance-2.0-431-720p`、`seedance-2.0-1080p` ...|
-| **视频** | xAI Videos | `grok-imagine-video`、`grok-imagine-video-1.5` ...|
 
-## 💎 赞助商
 
-<table>
-  <tr>
-    <td width="180" align="center">
-      <a href="https://flyreq.com">
-        <img src="frontend/public/icon-512.png" width="112" alt="FlyReq" />
-      </a>
-    </td>
-    <td>
-      <strong>感谢 <a href="https://flyreq.com">FlyReq</a> 对本项目的赞助支持！</strong><br /><br />
-      FlyReq 是一家提供高折扣 AI 模型 API 中转服务的平台，帮助个人开发者和团队以更具成本优势的方式接入所需模型服务。<br /><br />
-      新用户注册即可获得体验额度，用于验证模型能力和接入流程。访问 <a href="https://flyreq.com">flyreq.com</a> 了解服务详情并开始体验。
-    </td>
-  </tr>
-</table>
-
----
 
 ## 🖼️ UI 预览
 
 ### 生图工作台
 
-| 宽屏 | 窄屏 | 手机版 |
-|:---:|:---:|:---:|
-| ![生图工作台宽屏](doc/生图工作台宽屏.png) | ![生图工作台窄屏](doc/生图工作台窄屏.png) | ![生图工作台手机版](doc/生图工作台手机版.png) |
+| 宽屏 |  手机版 |
+|:---:|:---:|
+| ![生图工作台宽屏](doc/生图工作台宽屏.png) | ![生图工作台手机版](doc/生图工作台手机版.png) |
 
 ### 视频工作台
 
-| 宽屏 | 窄屏 | 手机版 |
-|:---:|:---:|:---:|
-| ![生图工作台宽屏](doc/视频工作台宽屏.png) | ![视频工作台窄屏](doc/视频工作台窄屏.png) | ![视频工作台手机版](doc/视频工作台手机版.png) |
+| 宽屏 | 手机版 |
+|:---:|:---:|
+| ![生图工作台宽屏](doc/视频工作台宽屏.png) | ![视频工作台手机版](doc/视频工作台手机版.png) |
 
 ### Agent 模式
 
@@ -109,6 +82,40 @@ FlyReq Image Studio（简称 FlyReq Image）是一个面向个人与团队的 AI
 | ![反推提示词](doc/反推提示词.png) | ![设置](doc/设置.png) |
 
 ---
+## 💎 赞助商
+
+<table>
+  <tr>
+    <td width="180" align="center">
+      <a href="https://flyreq.com">
+        <img src="frontend/public/icon-512.png" width="112" alt="FlyReq" />
+      </a>
+    </td>
+    <td>
+      <strong>感谢 <a href="https://flyreq.com">FlyReq</a> 对本项目的赞助支持！</strong><br /><br />
+      FlyReq 是一家提供高折扣 AI 模型 API 中转服务的平台，帮助个人开发者和团队以更具成本优势的方式接入所需模型服务。<br /><br />
+      新用户注册即可获得体验额度，用于验证模型能力和接入流程。访问 <a href="https://flyreq.com">flyreq.com</a> 了解服务详情并开始体验。
+    </td>
+  </tr>
+</table>
+
+---
+
+
+
+## 🧩 支持的图片与视频模型
+
+| 类型 | 厂商/协议 | 模型 ID / 说明 |
+| :--- | :--- | :--- |
+| **图片** | Banana 系列 | `gemini-3-pro-image`、`gemini-3.1-flash-image`、`gemini-3.1-flash-lite-image`... |
+| **图片** | GPT 系列 | `gpt-image-2`、`gpt-image-1.5`、`gpt-image-1`... |
+| **图片** | Grok 系列 | `grok-imagine-image`、`grok-imagine-image-quality` ...|
+| **图片** | 自定义 | 支持自定义模型 ID |
+| **视频** | New API | 通用视频协议，支持自定义模型 ID |
+| **视频** | OpenAI Videos (Sora) | `seedance-2.0-431-720p`、`seedance-2.0-1080p` ...|
+| **视频** | xAI Videos | `grok-imagine-video`、`grok-imagine-video-1.5` ...|
+
+---
 
 ## ✨ 功能特性
 
@@ -122,208 +129,6 @@ FlyReq Image Studio（简称 FlyReq Image）是一个面向个人与团队的 AI
 | 🔍 反推提示词 | `ReversePromptForm` | 上传图片流式反推提示词（支持所有已配置的文字模型） |
 | 🎬 动图生成 | `GifGenerationWorkspace` | 多帧生图 + 网格拼合，浏览器端编码 GIF（`gifenc`） |
 
-### 提示词广场
-
-`PROMPT_GALLERY_MODE` 三种工作方式：
-
-- `1` 常驻：Tab 始终显示
-- `2` 私密：需要密码验证（密码来自后端环境变量 `PROMPT_GALLERY_PASSWORD`）
-- `3` 关闭：完全不显示
-
-提示词内容由后端 `backend/prompts.json` 维护，支持敏感词过滤（`backend/blacklist.json`）。
-
-### 模型系统
-
-FlyReq Image 采用**用户自定义模型**架构：
-
-- **模型级配置**：每个图片模型和文本模型都独立保存协议、显示名称、模型 ID、API Key 与 Base URL
-- **图像模型**：用户自由添加、编辑、删除，支持设置协议、显示名称、模型 ID、最大参考图数量、最大分辨率
-- **Image 2 额外参数**：仅 OpenAI 图片模型显示，透明背景、质量、风格控件默认开启，用户可手动关闭
-- **流式图片请求**：仅 OpenAI Images 协议显示，可对兼容接口发送 `stream=true`，用于降低 New API / Nginx / Cloudflare 长耗时图片生成时的 504 截断风险；上游不支持时任务直接返回错误
-- **文字模型**：支持自定义扩展，兼容 Gemini 和 OpenAI Response
-- **默认模型**：可为文本生图、图生图、反推提示词、Agent 等任务分别设置默认模型
-
-#### 支持的模型与协议
-
-| 类型 | 内置预设或兼容协议 | 可用能力 |
-| --- | --- | --- |
-| Google 图片模型 | Gemini 2.5 Flash Image、Gemini 3 Pro Image Preview、Gemini 3.1 Flash Image Preview、Gemini 3.1 Flash Lite Image | 文生图、图生图、模型允许的参考图数量与 1K 至 4K 输出；可按模型启用 `temperature` |
-| OpenAI 图片模型 | GPT Image 2 及 OpenAI Images 兼容接口 | GPT Image 2 支持文生图、图生图、最多 16 张参考图、1K 至 4K、质量/风格/透明背景/PNG-JPEG-WebP、自定义尺寸和流式图片请求；兼容接口的可用参数取决于其上游实现 |
-| xAI 图片模型 | Grok Imagine、Grok Imagine Quality | xAI Imagine 专用请求格式、1K 或 2K、预设支持的宽高比 |
-| 文字模型 | Google `generateContent`、OpenAI Responses 兼容接口 | 提示词反推、提示词优化、Agent 多轮对话与图像生成方案 |
-| 自定义模型 | `google` 或 `openai` 协议的兼容服务 | 自定义模型 ID、Base URL、API Key、最大参考图数、最大输出规格和能力开关 |
-
-预设是能力边界的配置模板，不会限制接入方使用兼容服务；填写实际 Base URL、模型 ID 和 API Key 后即可使用。Google 与 xAI 图片接口不发送 `stream=true`，以保持各自协议约束；OpenAI Images 兼容接口默认可开启流式请求。
-
-#### 与众不同的工作流能力
-
-- **Agent 按意图选模型**：Agent 会结合用户指定的分辨率、当前可用模型和参考图比例，选择能满足要求且规格合适的图片模型，并把布局参数归一化为该模型支持的范围。
-- **一处配置，多处生效**：外部系统可通过 URL 预填图片、文本或视频模型，并要求用户确认后才保存；部署者可通过环境变量为新用户提供首个默认图片模型、品牌名称、Logo 和浏览器图标。
-- **上游兼容与诊断并存**：服务端可以把用户填写的公网 Base URL 改写为容器内网地址，同时保留用户原始配置；上游返回错误时保留原始内容并标注来源。
-- **任务结果可恢复**：任务经 SQLite 队列持久化，WebSocket 实时同步状态，断线后自动重连并回退轮询；图片落盘保存，历史任务可重试、下载、备份和恢复。
-
-### 外部链接预填模型配置
-
-外部站点可以通过 URL 预填一个图片、文本或视频模型。页面会自动打开“设置”，把参数填入对应模型表单，然后立即清理地址栏中的全部配置参数。用户确认后仍需手动保存，外链导入不会自动写入 `localStorage`。
-
-URL 只需要一个 `provider` 参数，内容是 JSON 字符串。下面使用裸 JSON 方便阅读；生产接入必须使用 `encodeURIComponent(JSON.stringify(payload))` 生成 URL 编码值，避免特殊字符被浏览器、代理或聊天工具改写。
-
-#### 图片模型示例
-
-```json
-{
-  "type": "image",
-  "preset": "gpt-image-2",
-  "provider": "openai",
-  "modelKey": "flyreq-gpt-image-2",
-  "name": "FlyReq",
-  "modelId": "gpt-image-2",
-  "baseUrl": "https://flyreq.com",
-  "apiKey": "YOUR_API_KEY",
-  "maxRefImages": 16,
-  "maxOutputSize": "4K",
-  "supportsTemperature": false,
-  "streamImages": true
-}
-```
-
-URL编码JSON:
-```text
-https://image.flyreq.com/zh/?provider=%7B%22type%22%3A%22image%22%2C%22preset%22%3A%22gpt-image-2%22%2C%22provider%22%3A%22openai%22%2C%22modelKey%22%3A%22flyreq-gpt-image-2%22%2C%22name%22%3A%22FlyReq%22%2C%22modelId%22%3A%22gpt-image-2%22%2C%22baseUrl%22%3A%22https%3A%2F%2Fflyreq.com%22%2C%22apiKey%22%3A%22YOUR_API_KEY%22%2C%22maxRefImages%22%3A16%2C%22maxOutputSize%22%3A%224K%22%7D
-```
-
-```text
-https://image.flyreq.com/zh/?provider={"type":"image","preset":"gpt-image-2","provider":"openai","modelKey":"flyreq-gpt-image-2","name":"FlyReq","modelId":"gpt-image-2","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","maxRefImages":16,"maxOutputSize":"4K"}
-```
-
-配置完整时，图片模型会成为文生图和图生图默认模型。
-
-#### 文本模型示例
-
-```json
-{
-  "type": "text",
-  "provider": "openai",
-  "modelKey": "flyreq-text-default",
-  "name": "FlyReq Text",
-  "modelId": "gpt-5.4-mini",
-  "baseUrl": "https://flyreq.com",
-  "apiKey": "YOUR_API_KEY",
-  "note": "OpenAI Responses 兼容文本模型"
-}
-```
-
-```text
-https://image.flyreq.com/zh/?provider={"type":"text","provider":"openai","modelKey":"flyreq-text-default","name":"FlyReq Text","modelId":"gpt-5.4-mini","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","note":"OpenAI Responses 兼容文本模型"}
-```
-
-配置完整时，文本模型会成为 Agent、反推提示词、提示词优化和图片描述的初始默认模型；用户保存前可以分别调整。文本模型支持 `openai` 和 `google`。
-
-#### 视频模型示例
-
-```json
-{
-  "type": "video",
-  "protocol": "openai",
-  "modelKey": "flyreq-video-default",
-  "name": "FlyReq Video",
-  "modelId": "sora-2",
-  "baseUrl": "https://api.openai.com",
-  "apiKey": "YOUR_API_KEY"
-}
-```
-
-```text
-https://image.flyreq.com/zh/?provider={"type":"video","protocol":"openai","modelKey":"flyreq-video-default","name":"FlyReq Video","modelId":"sora-2","baseUrl":"https://api.openai.com","apiKey":"YOUR_API_KEY"}
-```
-
-配置完整时，视频模型会成为视频生成默认模型。视频外链接受 `new-api`、`openai` 与 `xai` 三种协议。新链接必须使用显式 `protocol` 字段；历史 `provider=openai` 格式继续映射到旧版视频端点。
-
-后端全部标准日志会在保留控制台输出的同时，按本地日期写入 `backend/logs/application/application-YYYY-MM-DD.log` JSONL 文件，覆盖服务启动、任务队列、图片与视频处理、清理任务和 WebSocket 等运行事件。应用日志默认开启，可通过 `FLYREQ_FILE_LOG_ENABLED=false` 关闭，或通过 `FLYREQ_LOG_DIR` 修改目录。
-
-图片工作台每次 OpenAI、xAI 或 Google 上游生成请求与响应会输出 `[image-upstream]` 结构化日志，并按本地日期写入 `backend/logs/image-upstream/image-upstream-YYYY-MM-DD.log` JSONL 文件。日志包含请求方法、URL、请求头、请求体、HTTP 状态、响应头、响应正文与模型、模式、档位、比例等上下文。API Key、认证头、Cookie、签名查询参数会自动脱敏；请求的 data URL、multipart 图片，以及响应中的 OpenAI `b64_json`、Gemini `inlineData.data` 会替换为 MIME 或字节数摘要，绝不写入原始图片数据。日志默认开启，可通过 `FLYREQ_IMAGE_UPSTREAM_LOG_ENABLED=false` 关闭；单条普通响应正文默认最多记录 65536 字符，可通过 `FLYREQ_IMAGE_UPSTREAM_LOG_MAX_CHARS` 调整，落盘目录可通过 `FLYREQ_IMAGE_UPSTREAM_LOG_DIR` 修改。
-
-视频上游每次创建、轮询和结果下载的请求与响应还会输出 `[video-upstream]` 结构化日志，并按本地日期写入 `backend/logs/video-upstream/video-upstream-YYYY-MM-DD.log` JSONL 文件。每条阶段日志都包含本地 `taskId`、模型显示名称、上游模型 ID、清晰度和当前耗时；任务完成、失败或取消时还会写入 `task-summary` 终态记录及精确的 `totalDurationMs` 总耗时。日志同时包含请求阶段、方法、URL、HTTP 状态、请求头、请求参数、响应头、响应正文和任务上下文。API Key、认证头、Cookie、签名查询参数会自动脱敏；data URL 与 multipart 媒体只记录类型、名称和字节数；`Content-Type` 为 `video/*` 的响应只记录媒体类型和字节数占位符，不会写入视频正文。日志默认开启，可通过 `FLYREQ_VIDEO_UPSTREAM_LOG_ENABLED=false` 关闭；单条普通响应正文默认最多记录 65536 字符，可通过 `FLYREQ_VIDEO_UPSTREAM_LOG_MAX_CHARS` 调整，落盘目录可通过 `FLYREQ_VIDEO_UPSTREAM_LOG_DIR` 修改。Docker Compose 默认将宿主机 `./logs` 挂载到 `/app/backend/logs`，并使用 `Asia/Shanghai` 时区分割日期。
-
-#### 字段与行为
-
-| 字段 | 说明 |
-| --- | --- |
-| `type` | 模型类型：`image`、`text` 或 `video`；省略时为兼容旧链接默认使用 `image` |
-| `modelKey` | 可选，稳定模型 ID；存在同 ID 时更新该模型 |
-| `provider` / `protocol` | 图片、文本支持 `openai` 或 `google`；视频支持 `new-api`、`openai` 或 `xai`。新视频链接使用 `protocol`，历史 `provider=openai` 保留旧版端点行为 |
-| `name` | 显示名称 |
-| `modelId` | 上游模型 ID |
-| `baseUrl` | 上游 Base URL |
-| `apiKey` | API Key |
-| `preset` | 仅图片模型，可选内置模板，如 `gpt-image-2` |
-| `maxRefImages` | 仅图片模型，最大参考图数量 |
-| `maxOutputSize` | 仅图片模型：`512`、`1K`、`2K`、`4K` |
-| `supportsTemperature` | 仅图片模型，上游兼容时允许发送 Gemini `temperature` |
-| `streamImages` | 仅图片模型，启用 OpenAI Images 兼容流式请求 |
-| `note` | 仅文本模型，可选的协议或部署说明 |
-
-匹配规则：优先按 `modelKey` 更新已有模型；没有 `modelKey` 时，按 `name + modelId + baseUrl` 匹配；仍未匹配则新增草稿。不完整配置会作为未激活草稿保留，用户可以补齐后保存。旧版 `configureModel=1&type=...` 多参数链接仍支持三种类型，识别后会删除所有配置参数。
-
-安全提示：应用清理 URL 前，API Key 仍可能短暂出现在浏览器历史、代理日志、聊天预览和 Referer 信息中。推荐使用短期 Key，或在外链中省略 `apiKey`，让用户在本地填写。
-
-### 任务系统
-
-- 提交后入队，服务端并发处理（默认上限 50，可通过 `FLYREQ_TASK_CONCURRENCY` 调整）
-- 浏览器通过 **WebSocket** 实时接收任务/队列状态，断线自动重连，失败 5 次后回退 **HTTP 轮询**（30 秒间隔）
-- 任务结果本地落盘（`backend/flyreq-images/`），HTTP 路由 `/api/flyreq/images/:taskId/:index` 直接提供
-- 任务 TTL 12 小时，过期自动清理（5 分钟一次）
-- 服务重启时把残留"处理中"任务标记为失败并删除产物，避免幽灵任务
-
-### 体验与工程化
-
-- PWA（`next-pwa`），可安装到桌面
-- 三端兼容 UI：桌面端、平板端、移动端自适应布局，提供一致的用户体验
-- 暗色 / 亮色主题切换
-- 宽屏 / 窄屏自适应布局（左侧垂直 Tab + 右侧内容）
-- 历史任务持久化（IndexedDB / localStorage）
-- 一键备份 / 恢复（`JSZip` 打包 localStorage + IndexedDB，支持跳过不兼容旧配置并恢复其余数据）
-- 历史图片懒加载（`@tanstack/react-virtual`）
-- 随机图、Toast 通知、确认对话框
-
----
-
-## 📁 项目结构
-
-```text
-flyreq-image-studio/
-├── frontend/                 # Next.js 前端（React 19 + TS）
-│   ├── src/
-│   │   ├── app/              # 根页面 layout.tsx / page.tsx
-│   │   ├── components/       # 业务组件 + shadcn/ui 基础组件
-│   │   │   ├── workspace/    # 主工作台壳、Tab、Header、结果区
-│   │   │   ├── agent/        # Agent 模式相关组件
-│   │   │   └── ui/           # shadcn 风格 UI 基础件
-│   │   ├── hooks/            # useQueueStatus / useAgentChat / useGifWorkflow / ...
-│   │   ├── lib/              # 客户端工具、API 客户端、WebSocket、备份
-│   │   └── test/             # vitest 配置与用例
-│   ├── public/               # PWA 图标、静态资源
-│   ├── next.config.ts        # 静态导出 + next-pwa 配置
-│   ├── package.json
-│   └── vitest.config.ts
-├── backend/
-│   ├── server.js             # Node 服务（HTTP + WS + SQLite + 任务队列）
-│   ├── prompts.json          # 提示词广场内容
-│   ├── blacklist.json        # 敏感词
-│   ├── .env.example
-│   └── package.json
-├── scripts/
-│   ├── pack.js               # 打包：build + 汇总到 out.zip
-│   └── generate-icons.js     # 生成 PWA 图标
-├── package.json              # npm workspaces 根
-├── LICENSE                   # AGPL-3.0 许可证
-├── README.md
-└── README.en.md
-```
-
-> 生产构建会输出到 `frontend/out/`，由后端 `server.js` 静态托管。
-
----
 
 ## 🚀 部署指南
 
@@ -611,6 +416,168 @@ docker push ghcr.io/doudou770/flyreq-image-studio:latest
 </details>
 
 ---
+
+### 提示词广场
+
+`PROMPT_GALLERY_MODE` 三种工作方式：
+
+- `1` 常驻：Tab 始终显示
+- `2` 私密：需要密码验证（密码来自后端环境变量 `PROMPT_GALLERY_PASSWORD`）
+- `3` 关闭：完全不显示
+
+提示词内容由后端 `backend/prompts.json` 维护，支持敏感词过滤（`backend/blacklist.json`）。
+
+### 模型系统
+
+FlyReq Image 采用**用户自定义模型**架构：
+
+- **模型级配置**：每个图片模型和文本模型都独立保存协议、显示名称、模型 ID、API Key 与 Base URL
+- **图像模型**：用户自由添加、编辑、删除，支持设置协议、显示名称、模型 ID、最大参考图数量、最大分辨率
+- **Image 2 额外参数**：仅 OpenAI 图片模型显示，透明背景、质量、风格控件默认开启，用户可手动关闭
+- **流式图片请求**：仅 OpenAI Images 协议显示，可对兼容接口发送 `stream=true`，用于降低 New API / Nginx / Cloudflare 长耗时图片生成时的 504 截断风险；上游不支持时任务直接返回错误
+- **文字模型**：支持自定义扩展，兼容 Gemini 和 OpenAI Response
+- **默认模型**：可为文本生图、图生图、反推提示词、Agent 等任务分别设置默认模型
+
+#### 支持的模型与协议
+
+| 类型 | 内置预设或兼容协议 | 可用能力 |
+| --- | --- | --- |
+| Google 图片模型 | Gemini 2.5 Flash Image、Gemini 3 Pro Image Preview、Gemini 3.1 Flash Image Preview、Gemini 3.1 Flash Lite Image | 文生图、图生图、模型允许的参考图数量与 1K 至 4K 输出；可按模型启用 `temperature` |
+| OpenAI 图片模型 | GPT Image 2 及 OpenAI Images 兼容接口 | GPT Image 2 支持文生图、图生图、最多 16 张参考图、1K 至 4K、质量/风格/透明背景/PNG-JPEG-WebP、自定义尺寸和流式图片请求；兼容接口的可用参数取决于其上游实现 |
+| xAI 图片模型 | Grok Imagine、Grok Imagine Quality | xAI Imagine 专用请求格式、1K 或 2K、预设支持的宽高比 |
+| 文字模型 | Google `generateContent`、OpenAI Responses 兼容接口 | 提示词反推、提示词优化、Agent 多轮对话与图像生成方案 |
+| 自定义模型 | `google` 或 `openai` 协议的兼容服务 | 自定义模型 ID、Base URL、API Key、最大参考图数、最大输出规格和能力开关 |
+
+预设是能力边界的配置模板，不会限制接入方使用兼容服务；填写实际 Base URL、模型 ID 和 API Key 后即可使用。Google 与 xAI 图片接口不发送 `stream=true`，以保持各自协议约束；OpenAI Images 兼容接口默认可开启流式请求。
+
+#### 与众不同的工作流能力
+
+- **Agent 按意图选模型**：Agent 会结合用户指定的分辨率、当前可用模型和参考图比例，选择能满足要求且规格合适的图片模型，并把布局参数归一化为该模型支持的范围。
+- **一处配置，多处生效**：外部系统可通过 URL 预填图片、文本或视频模型，并要求用户确认后才保存；部署者可通过环境变量为新用户提供首个默认图片模型、品牌名称、Logo 和浏览器图标。
+- **上游兼容与诊断并存**：服务端可以把用户填写的公网 Base URL 改写为容器内网地址，同时保留用户原始配置；上游返回错误时保留原始内容并标注来源。
+- **任务结果可恢复**：任务经 SQLite 队列持久化，WebSocket 实时同步状态，断线后自动重连并回退轮询；图片落盘保存，历史任务可重试、下载、备份和恢复。
+
+### 外部链接预填模型配置
+
+外部站点可以通过 URL 预填一个图片、文本或视频模型。页面会自动打开“设置”，把参数填入对应模型表单，然后立即清理地址栏中的全部配置参数。用户确认后仍需手动保存，外链导入不会自动写入 `localStorage`。
+
+URL 只需要一个 `provider` 参数，内容是 JSON 字符串。下面使用裸 JSON 方便阅读；生产接入必须使用 `encodeURIComponent(JSON.stringify(payload))` 生成 URL 编码值，避免特殊字符被浏览器、代理或聊天工具改写。
+
+#### 图片模型示例
+
+```json
+{
+  "type": "image",
+  "preset": "gpt-image-2",
+  "provider": "openai",
+  "modelKey": "flyreq-gpt-image-2",
+  "name": "FlyReq",
+  "modelId": "gpt-image-2",
+  "baseUrl": "https://flyreq.com",
+  "apiKey": "YOUR_API_KEY",
+  "maxRefImages": 16,
+  "maxOutputSize": "4K",
+  "supportsTemperature": false,
+  "streamImages": true
+}
+```
+
+URL编码JSON:
+```text
+https://image.flyreq.com/zh/?provider=%7B%22type%22%3A%22image%22%2C%22preset%22%3A%22gpt-image-2%22%2C%22provider%22%3A%22openai%22%2C%22modelKey%22%3A%22flyreq-gpt-image-2%22%2C%22name%22%3A%22FlyReq%22%2C%22modelId%22%3A%22gpt-image-2%22%2C%22baseUrl%22%3A%22https%3A%2F%2Fflyreq.com%22%2C%22apiKey%22%3A%22YOUR_API_KEY%22%2C%22maxRefImages%22%3A16%2C%22maxOutputSize%22%3A%224K%22%7D
+```
+
+```text
+https://image.flyreq.com/zh/?provider={"type":"image","preset":"gpt-image-2","provider":"openai","modelKey":"flyreq-gpt-image-2","name":"FlyReq","modelId":"gpt-image-2","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","maxRefImages":16,"maxOutputSize":"4K"}
+```
+
+配置完整时，图片模型会成为文生图和图生图默认模型。
+
+#### 文本模型示例
+
+```json
+{
+  "type": "text",
+  "provider": "openai",
+  "modelKey": "flyreq-text-default",
+  "name": "FlyReq Text",
+  "modelId": "gpt-5.4-mini",
+  "baseUrl": "https://flyreq.com",
+  "apiKey": "YOUR_API_KEY",
+  "note": "OpenAI Responses 兼容文本模型"
+}
+```
+
+```text
+https://image.flyreq.com/zh/?provider={"type":"text","provider":"openai","modelKey":"flyreq-text-default","name":"FlyReq Text","modelId":"gpt-5.4-mini","baseUrl":"https://flyreq.com","apiKey":"YOUR_API_KEY","note":"OpenAI Responses 兼容文本模型"}
+```
+
+配置完整时，文本模型会成为 Agent、反推提示词、提示词优化和图片描述的初始默认模型；用户保存前可以分别调整。文本模型支持 `openai` 和 `google`。
+
+#### 视频模型示例
+
+```json
+{
+  "type": "video",
+  "protocol": "openai",
+  "modelKey": "flyreq-video-default",
+  "name": "FlyReq Video",
+  "modelId": "sora-2",
+  "baseUrl": "https://api.openai.com",
+  "apiKey": "YOUR_API_KEY"
+}
+```
+
+```text
+https://image.flyreq.com/zh/?provider={"type":"video","protocol":"openai","modelKey":"flyreq-video-default","name":"FlyReq Video","modelId":"sora-2","baseUrl":"https://api.openai.com","apiKey":"YOUR_API_KEY"}
+```
+
+
+#### 字段与行为
+
+| 字段 | 说明 |
+| --- | --- |
+| `type` | 模型类型：`image`、`text` 或 `video`；省略时为兼容旧链接默认使用 `image` |
+| `modelKey` | 可选，稳定模型 ID；存在同 ID 时更新该模型 |
+| `provider` / `protocol` | 图片、文本支持 `openai` 或 `google`；视频支持 `new-api`、`openai` 或 `xai`。新视频链接使用 `protocol`，历史 `provider=openai` 保留旧版端点行为 |
+| `name` | 显示名称 |
+| `modelId` | 上游模型 ID |
+| `baseUrl` | 上游 Base URL |
+| `apiKey` | API Key |
+| `preset` | 仅图片模型，可选内置模板，如 `gpt-image-2` |
+| `maxRefImages` | 仅图片模型，最大参考图数量 |
+| `maxOutputSize` | 仅图片模型：`512`、`1K`、`2K`、`4K` |
+| `supportsTemperature` | 仅图片模型，上游兼容时允许发送 Gemini `temperature` |
+| `streamImages` | 仅图片模型，启用 OpenAI Images 兼容流式请求 |
+| `note` | 仅文本模型，可选的协议或部署说明 |
+
+匹配规则：优先按 `modelKey` 更新已有模型；没有 `modelKey` 时，按 `name + modelId + baseUrl` 匹配；仍未匹配则新增草稿。不完整配置会作为未激活草稿保留，用户可以补齐后保存。旧版 `configureModel=1&type=...` 多参数链接仍支持三种类型，识别后会删除所有配置参数。
+
+安全提示：应用清理 URL 前，API Key 仍可能短暂出现在浏览器历史、代理日志、聊天预览和 Referer 信息中。推荐使用短期 Key，或在外链中省略 `apiKey`，让用户在本地填写。
+
+### 任务系统
+
+- 提交后入队，服务端并发处理（默认上限 50，可通过 `FLYREQ_TASK_CONCURRENCY` 调整）
+- 浏览器通过 **WebSocket** 实时接收任务/队列状态，断线自动重连，失败 5 次后回退 **HTTP 轮询**（30 秒间隔）
+- 任务结果本地落盘（`backend/flyreq-images/`），HTTP 路由 `/api/flyreq/images/:taskId/:index` 直接提供
+- 任务 TTL 12 小时，过期自动清理（5 分钟一次）
+- 服务重启时把残留"处理中"任务标记为失败并删除产物，避免幽灵任务
+
+### 体验与工程化
+
+- PWA（`next-pwa`），可安装到桌面
+- 三端兼容 UI：桌面端、平板端、移动端自适应布局，提供一致的用户体验
+- 暗色 / 亮色主题切换
+- 宽屏 / 窄屏自适应布局（左侧垂直 Tab + 右侧内容）
+- 历史任务持久化（IndexedDB / localStorage）
+- 一键备份 / 恢复（`JSZip` 打包 localStorage + IndexedDB，支持跳过不兼容旧配置并恢复其余数据）
+- 历史图片懒加载（`@tanstack/react-virtual`）
+- 随机图、Toast 通知、确认对话框
+
+---
+
+
+
 
 ## ⚙️ 环境变量（`backend/.env`）
 
