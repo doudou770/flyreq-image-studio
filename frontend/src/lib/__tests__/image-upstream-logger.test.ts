@@ -39,7 +39,7 @@ describe('图片上游日志', () => {
     expect(output).not.toContain(image);
   });
 
-  it('响应日志摘要 OpenAI 与 Gemini 的 Base64 图片', () => {
+  it('响应日志使用 OpenAI b64_json 占位符并摘要 Gemini Base64 图片', () => {
     const openAiImage = 'b3BlbmFpLWltYWdl';
     const geminiImage = 'Z2VtaW5pLWltYWdl';
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -54,9 +54,56 @@ describe('图片上游日志', () => {
     logger.logImageUpstreamResponse('generate', 'https://upstream.example/google', response, JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { data: geminiImage, mimeType: 'image/png' } }] } }] }));
 
     const output = info.mock.calls.flat().join('\n');
+    expect(output).toContain('"b64_json": "b64_json_value"');
     expect(output).toContain('<图片 Base64 已省略；字节数=12>');
     expect(output).not.toContain(openAiImage);
     expect(output).not.toContain(geminiImage);
+  });
+
+  it('b64_json 占位符不会随原始图片长度增长', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const response = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'application/json' }),
+    };
+    const largeImage = 'A'.repeat(1024 * 1024);
+
+    logger.logImageUpstreamResponse(
+      'generate',
+      'https://upstream.example/openai',
+      response,
+      JSON.stringify({ data: [{ b64_json: largeImage }] }),
+    );
+
+    const output = info.mock.calls.flat().join('\n');
+    expect(output).toContain('"b64_json": "b64_json_value"');
+    expect(output).not.toContain(largeImage);
+    expect(output.length).toBeLessThan(10_000);
+  });
+
+  it('SSE 文本响应中的 b64_json 也使用占位符', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const response = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'text/event-stream' }),
+    };
+    const largeImage = 'A'.repeat(1024 * 1024);
+
+    logger.logImageUpstreamResponse(
+      'generate',
+      'https://upstream.example/openai',
+      response,
+      `data: {"type":"image_generation.completed","b64_json":"${largeImage}"}`,
+    );
+
+    const output = info.mock.calls.flat().join('\n');
+    expect(output).toContain('b64_json_value');
+    expect(output).not.toContain(largeImage);
+    expect(output.length).toBeLessThan(10_000);
   });
 
   it('将脱敏的图片请求记录追加为 JSONL 文件', async () => {

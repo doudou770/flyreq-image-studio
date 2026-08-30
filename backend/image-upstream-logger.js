@@ -10,6 +10,7 @@ const {
 } = require('./video-upstream-logger');
 
 const DEFAULT_LOG_DIR = path.join(__dirname, 'logs', 'image-upstream');
+const IMAGE_B64_JSON_PLACEHOLDER = 'b64_json_value';
 const initializedLogDirectories = new Map();
 const warnedLogErrors = new Set();
 
@@ -114,14 +115,18 @@ function estimateImageBase64Bytes(value) {
  * @param {unknown} value 待处理的结构化值。
  * @param {string} [key] 当前字段名。
  * @param {string} [parentKey] 父级字段名。
- * @returns {unknown} 图片正文已替换为字节数摘要的结构。
+ * @returns {unknown} OpenAI b64_json 使用固定占位符，Gemini 图片正文使用字节数摘要的结构。
  */
 function summarizeImagePayload(value, key = '', parentKey = '') {
   const normalizedKey = String(key).toLowerCase().replace(/[-_]/g, '');
   const normalizedParentKey = String(parentKey).toLowerCase().replace(/[-_]/g, '');
-  const isBase64Image = normalizedKey === 'b64json'
-    || (normalizedKey === 'data' && normalizedParentKey === 'inlinedata');
-  if (isBase64Image && typeof value === 'string') {
+  // OpenAI 的 b64_json 可能包含完整图片正文，日志只保留固定占位符以控制体积。
+  if (normalizedKey === 'b64json' && typeof value === 'string') {
+    return IMAGE_B64_JSON_PLACEHOLDER;
+  }
+  // Gemini inlineData.data 继续保留字节数摘要，便于诊断响应大小。
+  const isInlineDataImage = normalizedKey === 'data' && normalizedParentKey === 'inlinedata';
+  if (isInlineDataImage && typeof value === 'string') {
     return `<图片 Base64 已省略；字节数=${estimateImageBase64Bytes(value)}>`;
   }
   if (Array.isArray(value)) return value.map(item => summarizeImagePayload(item, '', key));
@@ -147,6 +152,15 @@ function summarizeImageRequestBody(body) {
 }
 
 /**
+ * 替换 SSE 或其他非 JSON 文本中的 OpenAI b64_json 字段值。
+ * @param {string} value 待处理的响应文本。
+ * @returns {string} b64_json 值已替换为固定占位符的文本。
+ */
+function replaceImageB64JsonText(value) {
+  return String(value).replace(/(["']b64_json["']\s*:\s*)["'][^"']*["']/gi, (_match, prefix) => `${prefix}"${IMAGE_B64_JSON_PLACEHOLDER}"`);
+}
+
+/**
  * 汇总图片上游响应正文并限制最大日志长度。
  * @param {string|undefined|null} responseText 已读取的响应正文。
  * @param {number} maxChars 最大日志字符数。
@@ -159,7 +173,7 @@ function summarizeImageResponseBody(responseText, maxChars) {
   try {
     serialized = JSON.stringify(sanitizeVideoLogValue(summarizeImagePayload(JSON.parse(raw))), null, 2);
   } catch {
-    serialized = String(sanitizeVideoLogValue(raw));
+    serialized = replaceImageB64JsonText(String(sanitizeVideoLogValue(raw)));
   }
   if (serialized.length <= maxChars) {
     try { return JSON.parse(serialized); } catch { return serialized || '<empty>'; }
