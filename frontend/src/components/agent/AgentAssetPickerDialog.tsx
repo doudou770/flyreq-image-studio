@@ -1,18 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Check, FileText, Grid3X3, ImageIcon, Loader2, Search, X } from 'lucide-react';
+import { Check, FileAudio, FileText, FileVideo, Grid3X3, ImageIcon, Loader2, Search, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   getAssetThumbnailBlob,
+  getAssetBlob,
   listImageAssets,
   listTextAssets,
+  listAssets,
+  isImageAsset,
+  isMediaAsset,
+  isTextAsset,
   touchAsset,
   type ImageAsset,
+  type MediaAsset,
   type TextAsset,
+  type AssetItem,
 } from '@/lib/asset-store';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/components/LanguageProvider';
@@ -22,6 +29,116 @@ interface AgentAssetPickerDialogProps {
   maxSelected?: number;
   onOpenChange: (open: boolean) => void;
   onConfirm: (assets: ImageAsset[]) => void;
+}
+
+/** 视频工作台使用的媒体素材选择器属性。 */
+export interface MediaAssetPickerDialogProps {
+  open: boolean;
+  kind: 'video' | 'audio';
+  maxSelected?: number;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (assets: MediaAsset[]) => void;
+}
+
+/** 统一素材选择器属性，供同时支持图片、视频、音频和文本的工作流使用。 */
+export interface UnifiedAssetPickerDialogProps {
+  open: boolean;
+  maxSelected?: number;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (assets: AssetItem[]) => void;
+}
+
+/** 加载统一素材选择器中的图片缩略图或视频首帧预览。 */
+function UnifiedAssetPreview({ asset, fallback }: { asset: AssetItem; fallback: ReactNode }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    const load = async (): Promise<void> => {
+      const blob = isImageAsset(asset) ? await getAssetThumbnailBlob(asset) : isMediaAsset(asset) ? await getAssetBlob(asset.id) : null;
+      if (!blob || !active) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    };
+    void load();
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [asset]);
+  if (isImageAsset(asset) && url) return <img src={url} alt={asset.name} className="h-full w-full object-cover" loading="lazy" />;
+  if (asset.kind === 'video' && url) return <video src={url} className="h-full w-full object-cover" muted preload="metadata" />;
+  return <div className="flex h-full w-full items-center justify-center">{fallback}</div>;
+}
+
+/** 在一个素材库弹窗中选择任意类型的素材。 */
+export function UnifiedAssetPickerDialog({ open, maxSelected = 8, onOpenChange, onConfirm }: UnifiedAssetPickerDialogProps) {
+  const { t } = useI18n();
+  const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [query, setQuery] = useState('');
+  const [kind, setKind] = useState<'all' | 'text' | 'image' | 'video' | 'audio'>('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    void listAssets().then(setAssets).finally(() => setLoading(false));
+  }, [open]);
+  useEffect(() => {
+    if (!open) { setQuery(''); setKind('all'); setSelected(new Set()); }
+  }, [open]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+  const filtered = useMemo(() => assets.filter(asset => {
+    if (kind !== 'all' && asset.kind !== kind && !(kind === 'image' && !asset.kind)) return false;
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return `${isTextAsset(asset) ? asset.content : asset.name} ${!isTextAsset(asset) ? `${asset.tags.join(' ')} ${asset.note}` : ''}`.toLowerCase().includes(q);
+  }), [assets, kind, query]);
+  const labels: Array<{ value: typeof kind; label: string }> = [
+    { value: 'all', label: t('assets.allTypes') },
+    { value: 'text', label: t('assets.prompt') },
+    { value: 'image', label: t('assets.image') },
+    { value: 'video', label: t('assets.video') },
+    { value: 'audio', label: t('assets.audio') },
+  ];
+  /** 根据素材类型返回统一选择器中的预览图标。 */
+  const iconFor = (asset: AssetItem) => isTextAsset(asset) ? <FileText className="h-8 w-8" /> : asset.kind === 'video' ? <FileVideo className="h-8 w-8" /> : asset.kind === 'audio' ? <FileAudio className="h-8 w-8" /> : <ImageIcon className="h-8 w-8" />;
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen flex-col sm:h-auto sm:max-h-[86dvh] sm:w-full sm:max-w-3xl sm:rounded-xl">
+      <DialogHeader><DialogTitle className="flex items-center gap-2"><Grid3X3 className="h-4 w-4" />{t('assetPicker.importAllTitle')}</DialogTitle></DialogHeader>
+      <div className="flex flex-wrap items-center gap-2 border-b pb-2">
+        <div className="relative min-w-48 flex-1"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('assetPicker.searchAll')} className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30" /></div>
+        <span className="text-xs text-muted-foreground">{selected.size}/{maxSelected}</span>
+        <Button size="sm" onClick={() => { onConfirm(assets.filter(asset => selected.has(asset.id))); onOpenChange(false); }} disabled={selected.size === 0}>{t('common.import')}</Button>
+      </div>
+      <div className="flex gap-1 overflow-x-auto pb-1">{labels.map(option => <button key={option.value} type="button" onClick={() => setKind(option.value)} className={cn('shrink-0 rounded-md border px-2.5 py-1 text-xs transition-colors', kind === option.value ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted')}>{option.label}</button>)}</div>
+      {loading ? <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : filtered.length === 0 ? <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">{t('assetPicker.noAllAssets')}</div> : <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-4">{filtered.map(asset => { const isSelected = selected.has(asset.id); const displayName = isTextAsset(asset) ? asset.content.slice(0, 80) : asset.name; return <button key={asset.id} type="button" onClick={() => setSelected(prev => { const next = new Set(prev); if (next.has(asset.id)) next.delete(asset.id); else if (next.size < maxSelected) next.add(asset.id); return next; })} className={cn('relative overflow-hidden rounded-md border bg-card text-left transition-colors', isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:border-muted-foreground/40')}><div className="flex aspect-video items-center justify-center bg-muted text-primary/70"><UnifiedAssetPreview asset={asset} fallback={iconFor(asset)} />{isSelected && <span className="absolute right-2 top-2 rounded-full bg-primary p-1 text-primary-foreground"><Check className="h-3 w-3" /></span>}</div><div className="p-2"><p className="truncate text-xs font-medium">{displayName}</p><p className="truncate text-[10px] text-muted-foreground">{asset.kind === 'text' ? t('assets.prompt') : asset.kind === 'image' || !asset.kind ? t('assets.image') : asset.kind === 'video' ? t('assets.video') : t('assets.audio')}</p></div></button>; })}</div>}
+    </DialogContent>
+  </Dialog>;
+}
+
+/** 选择素材库中的视频或音频，并返回用户选中的媒体记录。 */
+export function MediaAssetPickerDialog({ open, kind, maxSelected = 3, onOpenChange, onConfirm }: MediaAssetPickerDialogProps) {
+  const { t } = useI18n();
+  const [assets, setAssets] = useState<MediaAsset[]>([]);
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    void listAssets(kind).then(items => setAssets(items.filter(isMediaAsset))).finally(() => setLoading(false));
+  }, [kind, open]);
+  useEffect(() => { if (!open) { setQuery(''); setSelected(new Set()); } }, [open]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+  const filtered = useMemo(() => assets.filter(asset => !query.trim() || `${asset.name} ${asset.tags.join(' ')} ${asset.note}`.toLowerCase().includes(query.trim().toLowerCase())), [assets, query]);
+  const selectedAssets = useMemo(() => assets.filter(asset => selected.has(asset.id)), [assets, selected]);
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen flex-col sm:h-auto sm:max-h-[86dvh] sm:w-full sm:max-w-2xl sm:rounded-xl">
+      <DialogHeader><DialogTitle className="flex items-center gap-2">{kind === 'video' ? <FileVideo className="h-4 w-4" /> : <FileAudio className="h-4 w-4" />}{kind === 'video' ? t('assetPicker.videoAssets') : t('assetPicker.audioAssets')}</DialogTitle></DialogHeader>
+      <div className="flex items-center gap-2 border-b pb-2"><div className="relative flex-1"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('assetPicker.searchMedia')} className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30" /></div><span className="text-xs text-muted-foreground">{selected.size}/{maxSelected}</span><Button size="sm" onClick={() => { onConfirm(selectedAssets); onOpenChange(false); }} disabled={selected.size === 0}>{t('common.import')}</Button></div>
+      {loading ? <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : filtered.length === 0 ? <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">{t('assetPicker.noMediaAssets')}</div> : <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">{filtered.map(asset => { const isSelected = selected.has(asset.id); return <button key={asset.id} type="button" onClick={() => setSelected(prev => { const next = new Set(prev); if (next.has(asset.id)) next.delete(asset.id); else if (next.size < maxSelected) next.add(asset.id); return next; })} className={cn('overflow-hidden rounded-md border text-left transition-colors', isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:border-muted-foreground/40')}><div className="flex aspect-video items-center justify-center bg-muted text-primary/70">{kind === 'video' ? <FileVideo className="h-8 w-8" /> : <FileAudio className="h-8 w-8" />} {isSelected && <span className="absolute m-2 rounded-full bg-primary p-1 text-primary-foreground"><Check className="h-3 w-3" /></span>}</div><div className="p-2"><p className="truncate text-xs font-medium">{asset.name}</p><p className="text-[10px] text-muted-foreground">{asset.sizeBytes ? `${(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB` : ''}</p></div></button>; })}</div>}
+    </DialogContent>
+  </Dialog>;
 }
 
 interface AgentTextAssetPickerDialogProps {

@@ -8,12 +8,13 @@ export type AssetSourceKind =
   | 'agent'
   | 'reverse-prompt'
   | 'gif'
+  | 'video-generation'
   | 'upload'
   | 'random'
   | 'prompt-gallery'
   | 'manual';
 
-export type AssetKind = 'image' | 'text';
+export type AssetKind = 'image' | 'video' | 'audio' | 'text';
 
 export interface ImageAsset {
   id: string;
@@ -36,6 +37,28 @@ export interface ImageAsset {
   lastUsedAt?: number;
 }
 
+/** 二进制媒体素材，视频和音频共用图片素材的标签与来源字段。 */
+export interface MediaAsset {
+  id: string;
+  kind: 'video' | 'audio';
+  blobKey: string;
+  hash: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+  tags: string[];
+  note: string;
+  sourceKind: AssetSourceKind;
+  sourceLabel: string;
+  sourceRef?: string;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt?: number;
+}
+
 export interface TextAsset {
   id: string;
   kind: 'text';
@@ -50,7 +73,7 @@ export interface TextAsset {
   lastUsedAt?: number;
 }
 
-export type AssetItem = ImageAsset | TextAsset;
+export type AssetItem = ImageAsset | MediaAsset | TextAsset;
 
 export interface AssetBlobRecord {
   key: string;
@@ -75,11 +98,26 @@ export interface AddImageAssetInput {
   prompt?: string;
 }
 
+/** 新增视频或音频素材所需的输入参数。 */
+export interface AddMediaAssetInput {
+  blob: Blob;
+  kind: 'video' | 'audio';
+  name?: string;
+  tags?: string[];
+  note?: string;
+  sourceKind: AssetSourceKind;
+  sourceLabel?: string;
+  sourceRef?: string;
+}
+
 export interface UpdateImageAssetInput {
   name?: string;
   tags?: string[];
   note?: string;
 }
+
+/** 更新图片、视频或音频素材的可编辑元数据。 */
+export type UpdateMediaAssetInput = UpdateImageAssetInput;
 
 export interface AddTextAssetInput {
   content: string;
@@ -143,12 +181,27 @@ async function hashText(text: string): Promise<string> {
   return `text-fnv32-${buffer.length}-${hash.toString(16).padStart(8, '0')}`;
 }
 
-function isTextAsset(asset: AssetItem | null | undefined): asset is TextAsset {
+export function isTextAsset(asset: AssetItem | null | undefined): asset is TextAsset {
   return asset?.kind === 'text';
 }
 
-function isImageAsset(asset: AssetItem | null | undefined): asset is ImageAsset {
-  return Boolean(asset) && asset?.kind !== 'text';
+export function isImageAsset(asset: AssetItem | null | undefined): asset is ImageAsset {
+  return Boolean(asset) && (!asset?.kind || asset.kind === 'image');
+}
+
+/** 判断素材是否为视频或音频二进制媒体。 */
+export function isMediaAsset(asset: AssetItem | null | undefined): asset is MediaAsset {
+  return asset?.kind === 'video' || asset?.kind === 'audio';
+}
+
+/** 判断素材是否为视频。 */
+export function isVideoAsset(asset: AssetItem | null | undefined): asset is MediaAsset {
+  return asset?.kind === 'video';
+}
+
+/** 判断素材是否为音频。 */
+export function isAudioAsset(asset: AssetItem | null | undefined): asset is MediaAsset {
+  return asset?.kind === 'audio';
 }
 
 export function getAssetFileExtension(mimeType: string): string {
@@ -158,6 +211,12 @@ export function getAssetFileExtension(mimeType: string): string {
   if (normalized.includes('webp')) return 'webp';
   if (normalized.includes('gif')) return 'gif';
   if (normalized.includes('avif')) return 'avif';
+  if (normalized.includes('mp4')) return 'mp4';
+  if (normalized.includes('webm')) return 'webm';
+  if (normalized.includes('quicktime')) return 'mov';
+  if (normalized.includes('mpeg')) return 'mp3';
+  if (normalized.includes('wav')) return 'wav';
+  if (normalized.includes('ogg')) return 'ogg';
   return 'png';
 }
 
@@ -341,6 +400,71 @@ export async function addImageAsset(input: AddImageAssetInput): Promise<ImageAss
   return asset;
 }
 
+/** 读取媒体元数据并保存视频或音频素材，二进制内容按哈希复用。 */
+export async function addMediaAsset(input: AddMediaAssetInput): Promise<MediaAsset> {
+  const mimeType = input.blob.type || (input.kind === 'video' ? 'video/mp4' : 'audio/mpeg');
+  const hash = await hashBlob(input.blob);
+  const createdAt = now();
+  const db = await openAssetsDB();
+  if (!db) throw new Error('当前浏览器不支持素材库本地存储');
+  const existingAssets = await getAllFromStore<AssetItem>(db, ASSETS_STORE);
+  const existingBlob = await getFromStore<AssetBlobRecord>(db, BLOBS_STORE, hash);
+  db.close();
+  const existing = existingAssets.find(asset => isMediaAsset(asset) && asset.kind === input.kind && asset.hash === hash);
+  if (existing && isMediaAsset(existing)) {
+    const updated = { ...existing, lastUsedAt: createdAt, updatedAt: createdAt, tags: sanitizeTags([...existing.tags, ...(input.tags || [])]) };
+    await putAssetAndBlob(updated, null);
+    return updated;
+  }
+  const metadata = await getMediaMetadata(input.blob, input.kind);
+  const asset: MediaAsset = {
+    id: makeId(`${input.kind}-asset`),
+    kind: input.kind,
+    blobKey: hash,
+    hash,
+    name: input.name?.trim() || `${input.kind === 'video' ? '视频' : '音频'}-${new Date(createdAt).toLocaleString()}`,
+    mimeType,
+    sizeBytes: input.blob.size,
+    width: metadata.width,
+    height: metadata.height,
+    durationSeconds: metadata.durationSeconds,
+    tags: sanitizeTags(input.tags),
+    note: input.note?.trim() || '',
+    sourceKind: input.sourceKind,
+    sourceLabel: input.sourceLabel || getSourceKindLabel(input.sourceKind),
+    sourceRef: input.sourceRef,
+    createdAt,
+    updatedAt: createdAt,
+    lastUsedAt: createdAt,
+  };
+  await putAssetAndBlob(asset, existingBlob ? null : {
+    key: hash, hash, blob: input.blob, mimeType, sizeBytes: input.blob.size,
+    width: metadata.width, height: metadata.height, createdAt,
+  });
+  return asset;
+}
+
+/** 使用浏览器媒体元素提取时长与视频尺寸。 */
+async function getMediaMetadata(blob: Blob, kind: 'video' | 'audio'): Promise<{ width?: number; height?: number; durationSeconds?: number }> {
+  if (typeof document === 'undefined') return {};
+  const url = URL.createObjectURL(blob);
+  try {
+    return await new Promise(resolve => {
+      const element = kind === 'video' ? document.createElement('video') : document.createElement('audio');
+      element.preload = 'metadata';
+      element.onloadedmetadata = () => resolve({
+        width: kind === 'video' ? (element as HTMLVideoElement).videoWidth || undefined : undefined,
+        height: kind === 'video' ? (element as HTMLVideoElement).videoHeight || undefined : undefined,
+        durationSeconds: Number.isFinite(element.duration) ? element.duration : undefined,
+      });
+      element.onerror = () => resolve({});
+      element.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function addTextAsset(input: AddTextAssetInput): Promise<TextAsset> {
   const content = input.content.trim();
   if (!content) throw new Error('提示词内容不能为空');
@@ -399,7 +523,8 @@ export async function listAssets(kind?: AssetKind): Promise<AssetItem[]> {
     .filter(asset => {
       if (!kind) return true;
       if (kind === 'image') return isImageAsset(asset);
-      return isTextAsset(asset);
+      if (kind === 'text') return isTextAsset(asset);
+      return isMediaAsset(asset) && asset.kind === kind;
     })
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
@@ -414,12 +539,31 @@ export async function listTextAssets(): Promise<TextAsset[]> {
   return assets.filter(isTextAsset);
 }
 
+/** 返回素材库中的视频素材。 */
+export async function listVideoAssets(): Promise<MediaAsset[]> {
+  return (await listAssets('video')).filter(isVideoAsset);
+}
+
+/** 返回素材库中的音频素材。 */
+export async function listAudioAssets(): Promise<MediaAsset[]> {
+  return (await listAssets('audio')).filter(isAudioAsset);
+}
+
 export async function getImageAsset(assetId: string): Promise<ImageAsset | null> {
   const db = await openAssetsDB();
   if (!db) return null;
   const asset = await getFromStore<AssetItem>(db, ASSETS_STORE, assetId);
   db.close();
   return isImageAsset(asset) ? asset : null;
+}
+
+/** 按 id 读取任意二进制媒体素材。 */
+export async function getMediaAsset(assetId: string): Promise<MediaAsset | null> {
+  const db = await openAssetsDB();
+  if (!db) return null;
+  const asset = await getFromStore<AssetItem>(db, ASSETS_STORE, assetId);
+  db.close();
+  return isMediaAsset(asset) ? asset : null;
 }
 
 export async function getTextAsset(assetId: string): Promise<TextAsset | null> {
@@ -431,10 +575,10 @@ export async function getTextAsset(assetId: string): Promise<TextAsset | null> {
 }
 
 export async function getAssetBlob(assetId: string): Promise<Blob | null> {
-  const asset = await getImageAsset(assetId);
-  if (!asset) return null;
   const db = await openAssetsDB();
   if (!db) return null;
+  const asset = await getFromStore<AssetItem>(db, ASSETS_STORE, assetId);
+  if (!asset || isTextAsset(asset)) { db.close(); return null; }
   const record = await getFromStore<AssetBlobRecord>(db, BLOBS_STORE, asset.blobKey);
   db.close();
   return record?.blob || null;
@@ -449,9 +593,17 @@ export async function getAssetThumbnailBlob(asset: ImageAsset): Promise<Blob | n
 }
 
 export async function updateImageAsset(assetId: string, input: UpdateImageAssetInput): Promise<void> {
-  const current = await getImageAsset(assetId);
-  if (!current) throw new Error('素材不存在');
-  const updated: ImageAsset = {
+  await updateMediaAsset(assetId, input);
+}
+
+/** 更新图片、视频或音频素材的名称、标签和备注。 */
+export async function updateMediaAsset(assetId: string, input: UpdateMediaAssetInput): Promise<void> {
+  const db = await openAssetsDB();
+  if (!db) throw new Error('当前浏览器不支持素材库本地存储');
+  const current = await getFromStore<AssetItem>(db, ASSETS_STORE, assetId);
+  db.close();
+  if (!current || isTextAsset(current)) throw new Error('素材不存在');
+  const updated: ImageAsset | MediaAsset = {
     ...current,
     name: input.name?.trim() || current.name,
     tags: input.tags ? sanitizeTags(input.tags) : current.tags,
@@ -485,11 +637,11 @@ export async function deleteAsset(assetId: string): Promise<void> {
     throw new Error('素材不存在');
   }
   const assets = await getAllFromStore<AssetItem>(db, ASSETS_STORE);
-  const shouldDeleteBlob = isImageAsset(asset) && assets.filter(item => isImageAsset(item) && item.id !== assetId && item.blobKey === asset.blobKey).length === 0;
+  const shouldDeleteBlob = !isTextAsset(asset) && assets.filter(item => !isTextAsset(item) && item.id !== assetId && item.blobKey === asset.blobKey).length === 0;
   return new Promise((resolve, reject) => {
     const tx = db.transaction([ASSETS_STORE, BLOBS_STORE], 'readwrite');
     tx.objectStore(ASSETS_STORE).delete(assetId);
-    if (isImageAsset(asset) && shouldDeleteBlob) tx.objectStore(BLOBS_STORE).delete(asset.blobKey);
+    if (!isTextAsset(asset) && shouldDeleteBlob) tx.objectStore(BLOBS_STORE).delete(asset.blobKey);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => {
       const error = tx.error || new Error('素材删除失败');
@@ -510,11 +662,12 @@ export function getSourceKindLabel(kind: AssetSourceKind): string {
     case 'agent': return 'Agent';
     case 'reverse-prompt': return '反推提示词';
     case 'gif': return 'GIF 工作流';
+    case 'video-generation': return '视频生成';
     case 'upload': return '用户上传';
     case 'random': return '随机图片';
     case 'prompt-gallery': return '提示词广场';
     case 'manual': return '手动导入';
-    default: return '图片素材';
+    default: return '媒体素材';
   }
 }
 
