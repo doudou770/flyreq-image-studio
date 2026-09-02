@@ -1,14 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowUp, Check, ChevronDown, CircleStop, Clock3, CloudUpload, Copy, Download, FileAudio, FileImage, FileVideo, Images, Info, Loader2, Maximize, RefreshCw, ScanLine, SlidersHorizontal, Sparkles, Trash2, Video, X } from 'lucide-react';
+import { ArrowUp, Check, ChevronDown, CircleStop, Clock3, CloudUpload, Copy, Download, FileAudio, FileImage, FileVideo, FolderPlus, Images, Info, Loader2, Maximize, RefreshCw, ScanLine, SlidersHorizontal, Sparkles, Trash2, Video, X } from 'lucide-react';
 import { useI18n } from '@/components/LanguageProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
 import { Select } from '@/components/ui/select';
-import { AgentAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
+import { AgentAssetPickerDialog, UnifiedAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
 import { AttachmentChips } from '@/components/AttachmentChips';
 import { PromptOptimizeDialog } from '@/components/PromptOptimizeDialog';
 import { PromptSubmissionShortcutMenu } from '@/components/PromptSubmissionShortcutMenu';
@@ -34,7 +34,7 @@ import { getVideoProtocolDurations, getVideoResolutionLabel, getVideoWorkspaceCo
 import { generateModelId } from '@/lib/flyreq-models';
 import { requireDefaultConfiguredTextModel } from '@/lib/model-endpoints';
 import { streamPromptOptimize, type StreamPromptOptimizeHandle } from '@/lib/prompt-optimize-client';
-import { getAssetBlob, type ImageAsset } from '@/lib/asset-store';
+import { addMediaAsset, getAssetBlob, type AssetItem, type ImageAsset, type MediaAsset } from '@/lib/asset-store';
 import { cn } from '@/lib/utils';
 import { normalizePastedFileName } from '@/lib/pasted-file-naming';
 import { MAX_PARALLEL_COUNT, PARALLEL_COUNT_OPTIONS, type ParallelCount } from '@/lib/model-capabilities';
@@ -420,6 +420,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const [referenceVideos, setReferenceVideos] = useState<File[]>([]);
   const [referenceAudios, setReferenceAudios] = useState<File[]>([]);
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+  const [mediaAssetPickerOpen, setMediaAssetPickerOpen] = useState(false);
   const [resolution, setResolution] = useState(config.resolutions[0] || 720);
   const [customResolution, setCustomResolution] = useState('');
   const [resolutionMode, setResolutionMode] = useState<'preset' | 'custom'>('preset');
@@ -964,6 +965,21 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
     }
   }, [invalidateVideoBlobCache, showToast, t]);
 
+  /** 将已完成的视频任务保存为素材库视频，优先复用本地缓存。 */
+  const handleSaveVideoToAssets = useCallback(async (job: StoredVideoJob): Promise<void> => {
+    const source = job.videoUrl || getVideoJobSourceUrl(job);
+    if (!source) return;
+    try {
+      const response = await fetch(source);
+      if (!response.ok) throw new Error('视频读取失败');
+      const blob = await response.blob();
+      await addMediaAsset({ blob, kind: 'video', name: `video-${job.id}.mp4`, sourceKind: 'video-generation', sourceLabel: t('video.title'), sourceRef: job.serverTaskId || job.id });
+      showToast(t('video.savedToAssets'), 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t('video.assetImportFailed'), 'error');
+    }
+  }, [showToast, t]);
+
   useEffect(() => {
     if (!jobs.some(job => job.status === '排队中' || job.status === 'processing')) return;
     const timer = window.setInterval(() => void refreshPendingJobs(), 5000);
@@ -1069,6 +1085,32 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
       showToast(t('video.assetImportFailed'), 'error');
     }
   }, [config.maxReferenceImageBytes, maxReferenceImages, protocolProfile.references.imageMimeTypes, referenceImages.length, showToast, t]);
+
+  /** 将统一素材库选择结果按类型转换为参考文件，并复用当前协议校验规则。 */
+  const handleImportMediaAssets = useCallback(async (selectedAssets: AssetItem[]): Promise<void> => {
+    const imageAssets = selectedAssets.filter((asset): asset is ImageAsset => asset.kind === 'image' || !asset.kind);
+    const videoAssets = selectedAssets.filter((asset): asset is MediaAsset => asset.kind === 'video');
+    const audioAssets = selectedAssets.filter((asset): asset is MediaAsset => asset.kind === 'audio');
+    /** 按工作流上限和协议 MIME 白名单读取素材二进制文件。 */
+    const importFiles = async (items: MediaAsset[] | ImageAsset[], maxCount: number, currentCount: number, maxBytes: number, mimeTypes: readonly string[]): Promise<File[]> => {
+      const imported: File[] = [];
+      for (const asset of items.slice(0, Math.max(0, maxCount - currentCount))) {
+        const blob = await getAssetBlob(asset.id);
+        if (!blob) continue;
+        const file = new File([blob], asset.name, { type: asset.mimeType || blob.type || 'application/octet-stream' });
+        if (file.size <= maxBytes && isAllowedVideoReferenceMimeType(file.type, [...mimeTypes])) imported.push(file);
+      }
+      return imported;
+    };
+    const [images, videos, audios] = await Promise.all([
+      importFiles(imageAssets, maxReferenceImages, referenceImages.length, config.maxReferenceImageBytes, protocolProfile.references.imageMimeTypes),
+      importFiles(videoAssets, maxReferenceVideos, referenceVideos.length, config.maxReferenceVideoBytes, protocolProfile.references.videoMimeTypes),
+      importFiles(audioAssets, maxReferenceAudios, referenceAudios.length, config.maxReferenceAudioBytes, protocolProfile.references.audioMimeTypes),
+    ]);
+    if (images.length) setReferenceImages(current => [...current, ...images].slice(0, maxReferenceImages));
+    if (videos.length) setReferenceVideos(current => [...current, ...videos].slice(0, maxReferenceVideos));
+    if (audios.length) setReferenceAudios(current => [...current, ...audios].slice(0, maxReferenceAudios));
+  }, [config.maxReferenceAudioBytes, config.maxReferenceImageBytes, config.maxReferenceVideoBytes, maxReferenceAudios, maxReferenceImages, maxReferenceVideos, protocolProfile.references.audioMimeTypes, protocolProfile.references.imageMimeTypes, protocolProfile.references.videoMimeTypes, referenceAudios.length, referenceImages.length, referenceVideos.length]);
 
   const activeResolution = resolutionMode === 'custom' ? Number(customResolution) : resolution;
   const resolutionCapability = protocolProfile.parameters.resolution;
@@ -1489,7 +1531,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
   const hasReferenceMedia = referenceImages.length + referenceVideos.length + referenceAudios.length > 0;
 
   return (
-    <div ref={workspaceRef} className={cn('grid min-h-0 gap-5', wideMode && 'xl:h-full xl:grid-cols-[minmax(460px,0.95fr)_minmax(0,1.35fr)]')}>
+    <div ref={workspaceRef} className={cn('grid min-h-0 w-full min-w-0 gap-5', wideMode && 'xl:h-full xl:flex-1 xl:grid-cols-[minmax(460px,0.95fr)_minmax(0,1.35fr)]')}>
       <section className={cn('space-y-4', wideMode && 'xl:overflow-y-auto xl:pr-1')}>
         <div className="space-y-1">
           <div className="flex items-center gap-2"><Video className="size-5 text-primary" /><h2 className="text-lg font-semibold">{t('video.title')}</h2></div>
@@ -1527,10 +1569,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
                     </label>
                     </div>
                   </div>
-                  <button type="button" onClick={() => setAssetPickerOpen(true)} disabled={referenceImages.length >= maxReferenceImages} className="col-span-2 flex min-h-16 cursor-pointer items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-center transition-all hover:border-primary/50 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-4">
-                    <Images className="size-6 text-muted-foreground" />
-                    <span className="text-sm font-medium">{t('video.imageAssets')}</span>
-                  </button>
+                  <button type="button" onClick={() => setMediaAssetPickerOpen(true)} disabled={referenceImages.length >= maxReferenceImages && referenceVideos.length >= maxReferenceVideos && referenceAudios.length >= maxReferenceAudios} className="col-span-2 flex min-h-14 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-center text-sm font-medium transition-colors hover:bg-primary/10 disabled:opacity-40 sm:col-span-4"><Images className="size-5" />{t('video.imageAssets')}</button>
                 </div>
               </div>
               {(referenceImages.length > 0 || referenceVideos.length > 0 || referenceAudios.length > 0) && (
@@ -1756,6 +1795,7 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
               {job.error && <p className="rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">{job.error}</p>}
               <div className="flex flex-wrap gap-2">
                 {job.status === 'completed' && (job.videoUrl || (getVideoJobSourceUrl(job) && !job.cached)) && <Button variant="outline" size="sm" className="gap-2" disabled={downloadingVideoJobIds.has(job.id)} onClick={() => void handleDownloadVideo(job)}>{downloadingVideoJobIds.has(job.id) ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}{t('video.download')}</Button>}
+                {job.status === 'completed' && (job.videoUrl || getVideoJobSourceUrl(job)) && <Button variant="outline" size="sm" className="gap-2" onClick={() => void handleSaveVideoToAssets(job)}><FolderPlus className="size-4" />{t('task.saveToAssets')}</Button>}
                 {job.status === 'completed' && videoPlaybackStates[job.id] === 'error' && getVideoJobSourceUrl(job) && <Button variant="outline" size="sm" className="gap-2" onClick={() => handleReloadVideo(job)}><RefreshCw className="size-4" />{t('video.reload')}</Button>}
                 {(job.status === '排队中' || job.status === 'processing') && <Button variant="outline" size="sm" className="gap-2" onClick={() => void refreshPendingJobs()}><RefreshCw className="size-4" />{t('video.checkStatus')}</Button>}
                 {(job.status === '排队中' || job.status === 'processing') && job.serverTaskId && <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled={cancellingTaskIds.has(job.id)} onClick={() => void handleCancelJob(job)}>{cancellingTaskIds.has(job.id) ? <Loader2 className="size-4 animate-spin" /> : <CircleStop className="size-4" />}{t('video.cancel')}</Button>}
@@ -1771,6 +1811,12 @@ export function VideoGenerationWorkspace({ wideMode = false, onConfigureApiKey, 
         maxSelected={Math.max(1, maxReferenceImages - referenceImages.length)}
         onOpenChange={setAssetPickerOpen}
         onConfirm={assets => void handleImportImageAssets(assets)}
+      />
+      <UnifiedAssetPickerDialog
+        open={mediaAssetPickerOpen}
+        maxSelected={Math.max(1, maxReferenceImages - referenceImages.length + maxReferenceVideos - referenceVideos.length + maxReferenceAudios - referenceAudios.length)}
+        onOpenChange={setMediaAssetPickerOpen}
+        onConfirm={assets => void handleImportMediaAssets(assets)}
       />
       <PromptOptimizeDialog
         open={optimizeOpen}

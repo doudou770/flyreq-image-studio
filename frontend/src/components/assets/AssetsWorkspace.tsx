@@ -14,6 +14,8 @@ import {
   Grid3X3,
   HardDrive,
   ImageIcon,
+  FileAudio,
+  FileVideo,
   ImagePlus,
   Loader2,
   Pencil,
@@ -36,6 +38,7 @@ import { HistoryImagePreview } from '@/components/workspace/results/HistoryImage
 import { useImageLazyLoad } from '@/hooks/useImageLazyLoad';
 import {
   addImageAsset,
+  addMediaAsset,
   addTextAsset,
   deleteAsset,
   formatAssetSize,
@@ -43,11 +46,14 @@ import {
   getAssetThumbnailBlob,
   getSourceKindLabel,
   listAssets,
-  updateImageAsset,
+  updateMediaAsset,
   type AssetItem,
   type AssetSourceKind,
   type ImageAsset,
+  type MediaAsset,
   type TextAsset,
+  isImageAsset as isStoredImageAsset,
+  isMediaAsset,
 } from '@/lib/asset-store';
 import { generateAssetMetadata, type AssetMetadataSuggestion } from '@/lib/asset-metadata-client';
 import { dispatchImageActionToast, runImageAction, type ImageActionPayload } from '@/lib/image-actions';
@@ -55,6 +61,7 @@ import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
 import { requireDefaultConfiguredTextModel } from '@/lib/model-endpoints';
 import { prepareUploadImage } from '@/lib/upload-image-cache';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/components/LanguageProvider';
 
 interface AssetsWorkspaceProps {
   wideMode?: boolean;
@@ -64,15 +71,15 @@ interface AssetsWorkspaceProps {
 const SETTINGS_KEY = LOCAL_STORAGE_KEYS.assetsSettings;
 const PAGE_SIZE = 48;
 const PROMPT_TAG = '提示词';
-const SORT_OPTIONS: Array<{ value: 'newest' | 'oldest' | 'used'; label: string }> = [
-  { value: 'newest', label: '最新添加' },
-  { value: 'oldest', label: '最早添加' },
-  { value: 'used', label: '最近使用' },
+const SORT_OPTIONS: Array<{ value: 'newest' | 'oldest' | 'used' }> = [
+  { value: 'newest' },
+  { value: 'oldest' },
+  { value: 'used' },
 ];
-const VIEW_SIZE_OPTIONS: Array<{ value: AssetViewSize; label: string }> = [
-  { value: 'compact', label: '小' },
-  { value: 'normal', label: '大' },
-  { value: 'large', label: '详细' },
+const VIEW_SIZE_OPTIONS: Array<{ value: AssetViewSize }> = [
+  { value: 'compact' },
+  { value: 'normal' },
+  { value: 'large' },
 ];
 type AssetViewSize = 'compact' | 'normal' | 'large';
 type AssetSettings = { sort: 'newest' | 'oldest' | 'used'; viewSize: AssetViewSize };
@@ -95,7 +102,7 @@ function isTextAsset(asset: AssetItem): asset is TextAsset {
 }
 
 function isImageAsset(asset: AssetItem): asset is ImageAsset {
-  return asset.kind !== 'text';
+  return isStoredImageAsset(asset);
 }
 
 function uniqueTags(assets: AssetItem[]): string[] {
@@ -126,7 +133,7 @@ function makePayload(asset: ImageAsset): ImageActionPayload {
   };
 }
 
-function getZipEntryName(asset: ImageAsset): string {
+function getZipEntryName(asset: ImageAsset | MediaAsset): string {
   const safeName = (asset.name || asset.id).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').slice(0, 80) || asset.id;
   const ext = asset.mimeType.includes('jpeg') ? 'jpg' : asset.mimeType.split('/')[1] || 'png';
   return safeName.toLowerCase().endsWith(`.${ext}`) ? safeName : `${safeName}.${ext}`;
@@ -142,10 +149,11 @@ function getTextEntryName(asset: TextAsset): string {
   return `${content || asset.id}.txt`;
 }
 
-function matchesAsset(asset: AssetItem, query: string, tag: string, source: string): boolean {
+function matchesAsset(asset: AssetItem, query: string, tag: string, source: string, kind: string): boolean {
   if (tag === PROMPT_TAG && !isTextAsset(asset)) return false;
   if (tag && tag !== PROMPT_TAG && (!isImageAsset(asset) || !asset.tags.includes(tag))) return false;
   if (source && asset.sourceKind !== source) return false;
+  if (kind && asset.kind !== kind && !(kind === 'image' && isImageAsset(asset))) return false;
   const q = query.trim().toLowerCase();
   if (!q) return true;
   if (isTextAsset(asset)) {
@@ -160,9 +168,16 @@ function matchesAsset(asset: AssetItem, query: string, tag: string, source: stri
     asset.note,
     asset.sourceLabel,
     asset.sourceRef || '',
-    asset.prompt || '',
+    isImageAsset(asset) ? asset.prompt || '' : '',
     asset.tags.join(' '),
   ].some(value => value.toLowerCase().includes(q));
+}
+
+/** 将媒体时长格式化为适合卡片显示的分钟秒数。 */
+function formatDuration(seconds?: number): string {
+  if (!Number.isFinite(seconds)) return '';
+  const total = Math.max(0, Math.round(seconds || 0));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function useDebouncedValue(value: string, delay: number) {
@@ -175,6 +190,7 @@ function useDebouncedValue(value: string, delay: number) {
 }
 
 function StorageEstimate({ totalBytes }: { totalBytes: number }) {
+  const { t } = useI18n();
   const [estimate, setEstimate] = useState<{ usage?: number; quota?: number } | null>(null);
 
   useEffect(() => {
@@ -192,14 +208,15 @@ function StorageEstimate({ totalBytes }: { totalBytes: number }) {
   const lowSpace = typeof usage === 'number' && typeof quota === 'number' && quota > 0
     && (usage / quota >= 0.9 || quota - usage <= 250 * 1024 * 1024);
   const browserUsage = usage && quota
-    ? ` · 浏览器 ${(usage / 1024 / 1024).toFixed(0)} / ${(quota / 1024 / 1024).toFixed(0)} MB`
+    ? t('assets.browserUsage', { usage: (usage / 1024 / 1024).toFixed(0), quota: (quota / 1024 / 1024).toFixed(0) })
     : '';
+  const formattedTotal = totalBytes > 0 ? formatAssetSize(totalBytes) : t('assets.unknownSize');
 
   return (
     <span className={cn('inline-flex items-center gap-1 text-xs', lowSpace ? 'text-warning' : 'text-muted-foreground')}>
       <HardDrive className="h-3.5 w-3.5" />
-      素材 {formatAssetSize(totalBytes)}{browserUsage}
-      {lowSpace && <span className="font-medium"> · 空间偏紧，请清理素材</span>}
+      {t('assets.storage', { size: formattedTotal, browser: browserUsage })}
+      {lowSpace && <span className="font-medium">{t('assets.storageLow')}</span>}
     </span>
   );
 }
@@ -262,19 +279,48 @@ function AssetThumbnail({
   );
 }
 
+/** 渲染视频或音频素材的轻量预览卡片，避免读取完整文件造成布局抖动。 */
+function MediaThumbnail({ asset, onPreview }: { asset: MediaAsset; onPreview: () => void }) {
+  const lazyLoad = useImageLazyLoad<HTMLButtonElement>({ rootMargin: '300px' });
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!lazyLoad.isVisible) return;
+    let active = true;
+    let objectUrl: string | null = null;
+    void getAssetBlob(asset.id).then(blob => {
+      if (!blob || !active) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    });
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [asset.id, lazyLoad.isVisible]);
+  const { elementRef } = lazyLoad;
+  return (
+    <button ref={elementRef} type="button" onClick={onPreview} className="relative flex aspect-video w-full items-center justify-center overflow-hidden bg-muted">
+      {asset.kind === 'video' && url ? <video src={url} className="h-full w-full object-cover" muted preload="metadata" /> : null}
+      {asset.kind === 'audio' && <FileAudio className="h-10 w-10 text-primary/70" />}
+      {!url && asset.kind === 'video' && <FileVideo className="h-10 w-10 text-primary/70" />}
+      <span className="absolute bottom-1 right-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white">{formatDuration(asset.durationSeconds)}</span>
+    </button>
+  );
+}
+
 export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorkspaceProps) {
+  const { t } = useI18n();
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 180);
   const [selectedTag, setSelectedTag] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
+  const [selectedKind, setSelectedKind] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [sort, setSort] = useState<'newest' | 'oldest' | 'used'>(() => loadAssetSettings().sort);
   const [viewSize, setViewSize] = useState<AssetViewSize>(() => loadAssetSettings().viewSize);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [previewImages, setPreviewImages] = useState<string[]>([]);
-  const [editingAsset, setEditingAsset] = useState<ImageAsset | null>(null);
+  const [previewMedia, setPreviewMedia] = useState<{ asset: MediaAsset; url: string } | null>(null);
+  const [editingAsset, setEditingAsset] = useState<ImageAsset | MediaAsset | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AssetItem | null>(null);
   const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -316,7 +362,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
   }, [sort, viewSize]);
 
   const filteredAssets = useMemo(() => {
-    const filtered = assets.filter(asset => matchesAsset(asset, debouncedQuery, selectedTag, selectedSource));
+    const filtered = assets.filter(asset => matchesAsset(asset, debouncedQuery, selectedTag, selectedSource, selectedKind));
     if (sort === 'oldest') {
       return filtered.sort((a, b) => a.createdAt - b.createdAt);
     }
@@ -324,7 +370,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
       return filtered.sort((a, b) => (b.lastUsedAt || b.updatedAt || b.createdAt) - (a.lastUsedAt || a.updatedAt || a.createdAt));
     }
     return filtered.sort((a, b) => b.createdAt - a.createdAt);
-  }, [assets, debouncedQuery, selectedSource, selectedTag, sort]);
+  }, [assets, debouncedQuery, selectedKind, selectedSource, selectedTag, sort]);
 
   const visibleAssets = useMemo(() => filteredAssets.slice(0, visibleCount), [filteredAssets, visibleCount]);
   useEffect(() => {
@@ -346,7 +392,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [debouncedQuery, selectedSource, selectedTag, sort]);
+  }, [debouncedQuery, selectedKind, selectedSource, selectedTag, sort]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const allTags = useMemo(() => uniqueTags(assets), [assets]);
@@ -365,8 +411,19 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
   }, [assets]);
   const selectedCount = selectedAssetIds.size;
   const allVisibleSelected = visibleAssets.length > 0 && visibleAssets.every(asset => selectedAssetIds.has(asset.id));
-  const selectedSourceLabel = selectedSource ? getSourceKindLabel(selectedSource as AssetSourceKind) : '全部来源';
-  const sortLabel = SORT_OPTIONS.find(option => option.value === sort)?.label || '最新添加';
+  const selectedSourceLabel = selectedSource ? getSourceKindLabel(selectedSource as AssetSourceKind) : t('assets.allSources');
+  const selectedKindLabel = selectedKind === 'video' ? t('assets.video') : selectedKind === 'audio' ? t('assets.audio') : selectedKind === 'image' ? t('assets.image') : selectedKind === 'text' ? t('assets.prompt') : t('assets.allTypes');
+  const sortLabels = {
+    newest: t('assets.sortNewest'),
+    oldest: t('assets.sortOldest'),
+    used: t('assets.sortUsed'),
+  };
+  const viewSizeLabels = {
+    compact: t('assets.viewCompact'),
+    normal: t('assets.viewNormal'),
+    large: t('assets.viewLarge'),
+  };
+  const sortLabel = sortLabels[sort];
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -398,51 +455,59 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
     setPreviewImages([]);
   }, [revokeFullObjectUrls]);
 
+  /** 打开视频或音频素材预览，并在关闭时释放对象 URL。 */
+  const openMediaPreview = useCallback(async (asset: MediaAsset) => {
+    const blob = await getAssetBlob(asset.id);
+    if (!blob) return;
+    if (previewMedia?.url) URL.revokeObjectURL(previewMedia.url);
+    setPreviewMedia({ asset, url: URL.createObjectURL(blob) });
+  }, [previewMedia]);
+
+  useEffect(() => () => { if (previewMedia?.url) URL.revokeObjectURL(previewMedia.url); }, [previewMedia]);
+
   const handleImportFiles = useCallback(async (files: FileList | File[]) => {
-    const images = Array.from(files).filter(file => file.type.startsWith('image/'));
-    if (images.length === 0) {
-      dispatchImageActionToast('请选择图片文件', 'error');
+    const media = Array.from(files).filter(file => /^(image|video|audio)\//.test(file.type));
+    if (media.length === 0) {
+      dispatchImageActionToast(t('assets.invalidMedia'), 'error');
       return;
     }
     setImporting(true);
     try {
       let imported = 0;
-      for (const file of images) {
-        await addImageAsset({
-          blob: file,
-          name: file.name,
-          sourceKind: 'manual',
-          sourceLabel: '手动导入',
-          sourceRef: file.name,
-        });
+      for (const file of media) {
+        if (file.type.startsWith('image/')) {
+          await addImageAsset({ blob: file, name: file.name, sourceKind: 'manual', sourceLabel: t('assets.manualSource'), sourceRef: file.name });
+        } else {
+          await addMediaAsset({ blob: file, kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name, sourceKind: 'manual', sourceLabel: t('assets.manualSource'), sourceRef: file.name });
+        }
         imported++;
       }
       await reload();
-      dispatchImageActionToast(`已导入 ${imported} 张图片`, 'success');
+      dispatchImageActionToast(t('assets.imported', { count: imported }), 'success');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '导入素材失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.importFailed'), 'error');
     } finally {
       setImporting(false);
     }
-  }, [reload]);
+  }, [reload, t]);
 
   const saveTextAsset = useCallback(async () => {
     try {
       await addTextAsset({
         content: textContent,
         sourceKind: 'manual',
-        sourceLabel: '手动导入',
+        sourceLabel: t('assets.manualSource'),
       });
       setTextContent('');
       setTextDialogOpen(false);
       await reload();
-      dispatchImageActionToast('提示词素材已保存', 'success');
+      dispatchImageActionToast(t('assets.promptSaved'), 'success');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '保存提示词素材失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.promptSaveFailed'), 'error');
     }
-  }, [reload, textContent]);
+  }, [reload, t, textContent]);
 
-  const openEdit = useCallback((asset: ImageAsset) => {
+  const openEdit = useCallback((asset: ImageAsset | MediaAsset) => {
     setEditingAsset(asset);
     setEditName(asset.name);
     setEditTags(asset.tags.join(' '));
@@ -453,18 +518,36 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
   const saveEdit = useCallback(async () => {
     if (!editingAsset || metadataGenerating) return;
     try {
-      await updateImageAsset(editingAsset.id, {
+      await updateMediaAsset(editingAsset.id, {
         name: editName,
         tags: splitTags(editTags),
         note: editNote,
       });
       setEditingAsset(null);
       await reload();
-      dispatchImageActionToast('素材已更新', 'success');
+      dispatchImageActionToast(t('assets.updated'), 'success');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '更新素材失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.updateFailed'), 'error');
     }
-  }, [editName, editNote, editTags, editingAsset, metadataGenerating, reload]);
+  }, [editName, editNote, editTags, editingAsset, metadataGenerating, reload, t]);
+
+  /** 下载单个视频或音频素材，并使用素材名称作为文件名。 */
+  const downloadMediaAsset = useCallback(async (asset: MediaAsset): Promise<void> => {
+    try {
+      const blob = await getAssetBlob(asset.id);
+      if (!blob) throw new Error(t('assets.readFailed'));
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = asset.name || `${asset.kind}-${asset.id}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.exportFailed'), 'error');
+    }
+  }, [t]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -472,11 +555,11 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
       await deleteAsset(deleteTarget.id);
       setDeleteTarget(null);
       await reload();
-      dispatchImageActionToast('素材已删除', 'success');
+      dispatchImageActionToast(t('assets.deletedSingle'), 'success');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '删除素材失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.deleteFailed'), 'error');
     }
-  }, [deleteTarget, reload]);
+  }, [deleteTarget, reload, t]);
 
   const confirmDeleteSelected = useCallback(async () => {
     if (selectedAssetIds.size === 0 || bulkDeleting) return;
@@ -496,13 +579,13 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
         return next;
       });
       await reload();
-      dispatchImageActionToast(`已删除 ${deletedCount} 项素材`, 'success');
+      dispatchImageActionToast(t('assets.deleted', { count: deletedCount }), 'success');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '删除选中素材失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.deleteFailed'), 'error');
     } finally {
       setBulkDeleting(false);
     }
-  }, [assets, bulkDeleting, reload, selectedAssetIds]);
+  }, [assets, bulkDeleting, reload, selectedAssetIds, t]);
 
   const toggleAssetSelection = useCallback((assetId: string) => {
     setSelectedAssetIds(prev => {
@@ -531,7 +614,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
     setPacking(true);
     try {
       const zip = new JSZip();
-      let readme = '我的素材导出\n\n';
+      let readme = `${t('assets.title')}\n\n`;
       let count = 0;
       for (const asset of assets.filter(item => selectedAssetIds.has(item.id))) {
         if (isTextAsset(asset)) {
@@ -544,13 +627,13 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
         const fileName = getZipEntryName(asset);
         zip.file(fileName, blob);
         readme += `${fileName}\n`;
-        readme += `  名称: ${asset.name}\n`;
-        readme += `  来源: ${asset.sourceLabel}\n`;
-        readme += `  标签: ${asset.tags.join('、') || '(无)'}\n`;
-        readme += `  备注: ${asset.note || '(无)'}\n\n`;
+        readme += `  ${t('assets.name')}: ${asset.name}\n`;
+        readme += `  ${t('assets.source', { value: '' }).replace(/：$|: $/, '')}: ${asset.sourceLabel}\n`;
+        readme += `  ${t('assets.tags')}: ${asset.tags.join(', ') || t('assets.noTags')}\n`;
+        readme += `  ${t('assets.note')}: ${asset.note || t('assets.noNote')}\n\n`;
         count++;
       }
-      if (count === 0) throw new Error('没有可导出的素材');
+      if (count === 0) throw new Error(t('assets.exportEmpty'));
       zip.file('README.txt', readme);
       const content = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(content);
@@ -561,13 +644,13 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
       link.click();
       document.body.removeChild(link);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      dispatchImageActionToast(`已打包 ${count} 项素材`, 'success');
+      dispatchImageActionToast(t('assets.exported', { count }), 'success');
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '打包下载失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.exportFailed'), 'error');
     } finally {
       setPacking(false);
     }
-  }, [assets, packing, selectedAssetIds]);
+  }, [assets, packing, selectedAssetIds, t]);
 
   const generateEditMetadata = useCallback(async () => {
     if (!editingAsset || metadataGenerating) return;
@@ -575,14 +658,15 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
     try {
       textModel = requireDefaultConfiguredTextModel('imageDescribe');
     } catch {
-      dispatchImageActionToast('请先在设置中完成图片描述默认文本模型配置', 'error');
+      dispatchImageActionToast(t('assets.configureDescribe'), 'error');
       return;
     }
     setMetadataGenerating(true);
     setMetadataSuggestion(null);
     try {
       const blob = await getAssetBlob(editingAsset.id);
-      if (!blob) throw new Error('无法读取素材图片');
+      if (!blob) throw new Error(t('assets.readFailed'));
+      if (!isImageAsset(editingAsset)) throw new Error(t('assets.metadataFailed'));
       const imageDataUrl = await prepareAssetMetadataImage(editingAsset, blob);
       const suggestion = await generateAssetMetadata({
         apiKey: textModel.apiKey,
@@ -595,11 +679,11 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
       });
       setMetadataSuggestion(suggestion);
     } catch (error) {
-      dispatchImageActionToast(error instanceof Error ? error.message : '生成素材信息失败', 'error');
+      dispatchImageActionToast(error instanceof Error ? error.message : t('assets.metadataFailed'), 'error');
     } finally {
       setMetadataGenerating(false);
     }
-  }, [editName, editNote, editTags, editingAsset, metadataGenerating]);
+  }, [editName, editNote, editTags, editingAsset, metadataGenerating, t]);
 
   const applyMetadataSuggestion = useCallback(() => {
     if (!metadataSuggestion || metadataGenerating) return;
@@ -613,9 +697,9 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
     <section className={cn('min-w-0 space-y-4 overflow-hidden', wideMode && 'xl:flex xl:h-full xl:min-h-0 xl:flex-col')}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-          <h3 className="text-base font-medium text-foreground">我的素材</h3>
+          <h3 className="text-base font-medium text-foreground">{t('assets.title')}</h3>
           <div className="flex flex-wrap items-center gap-3">
-            <p className="text-xs text-muted-foreground">共 {assets.length} 项 · 当前 {filteredAssets.length} 项</p>
+            <p className="text-xs text-muted-foreground">{t('assets.count', { total: assets.length, filtered: filteredAssets.length })}</p>
             <StorageEstimate totalBytes={totalBytes} />
           </div>
         </div>
@@ -628,7 +712,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
             className="gap-1.5 text-muted-foreground hover:text-destructive"
           >
             {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-            {selectedCount > 0 ? `删除 (${selectedCount})` : '删除'}
+            {selectedCount > 0 ? t('assets.deleteCount', { count: selectedCount }) : t('assets.delete')}
           </Button>
           <Button
             variant="default"
@@ -638,12 +722,12 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
             className="gap-1.5"
           >
             {packing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileArchive className="h-3.5 w-3.5" />}
-            {selectedCount > 0 ? `打包下载 (${selectedCount})` : '打包下载'}
+            {selectedCount > 0 ? t('assets.downloadZipCount', { count: selectedCount }) : t('assets.downloadZip')}
           </Button>
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*,audio/*"
             multiple
             className="hidden"
             onChange={event => {
@@ -653,11 +737,11 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
           />
           <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing} className="gap-1.5">
             {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            导入图片
+            {t('assets.importMedia')}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setTextDialogOpen(true)} className="gap-1.5">
             <FileText className="h-3.5 w-3.5" />
-            新建提示词
+            {t('assets.newPrompt')}
           </Button>
         </div>
       </div>
@@ -669,7 +753,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
             <Input
               value={query}
               onChange={event => setQuery(event.target.value)}
-              placeholder="搜索名称、标签、备注、来源、提示词"
+              placeholder={t('assets.searchPlaceholder')}
               className="pl-8"
             />
             {query && (
@@ -677,7 +761,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                 type="button"
                 onClick={() => setQuery('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                title="清空搜索"
+                title={t('assets.clearSearch')}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -686,13 +770,13 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
           <Popover open={sourcePopoverOpen} onOpenChange={setSourcePopoverOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="justify-between gap-2">
-                来源：{selectedSourceLabel}
+                {t('assets.source', { value: selectedSourceLabel })}
                 <ChevronDown className="h-3.5 w-3.5 opacity-70" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-48 p-2">
               <div className="space-y-1">
-                {[{ value: '', label: '全部来源' }, ...sources.map(source => ({ value: source, label: getSourceKindLabel(source) }))].map(option => (
+                {[{ value: '', label: t('assets.allSources') }, ...sources.map(source => ({ value: source, label: getSourceKindLabel(source) }))].map(option => (
                   <button
                     key={option.value || 'all'}
                     type="button"
@@ -712,10 +796,23 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
               </div>
             </PopoverContent>
           </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="justify-between gap-2">{t('assets.type', { value: selectedKindLabel })}<ChevronDown className="h-3.5 w-3.5 opacity-70" /></Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-36 p-2">
+              {['', 'image', 'video', 'audio', 'text'].map(kind => (
+                <button key={kind || 'all'} type="button" onClick={() => setSelectedKind(kind)} className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm', selectedKind === kind ? 'bg-primary text-primary-foreground' : 'hover:bg-muted')}>
+                  {kind === '' ? t('assets.allTypes') : kind === 'image' ? t('assets.image') : kind === 'video' ? t('assets.video') : kind === 'audio' ? t('assets.audio') : t('assets.prompt')}
+                  {selectedKind === kind && <Check className="h-3.5 w-3.5" />}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
           <Popover open={sortPopoverOpen} onOpenChange={setSortPopoverOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="justify-between gap-2">
-                排序：{sortLabel}
+                {t('assets.sort', { value: sortLabel })}
                 <ChevronDown className="h-3.5 w-3.5 opacity-70" />
               </Button>
             </PopoverTrigger>
@@ -734,7 +831,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                       sort === option.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                     )}
                   >
-                    {option.label}
+                    {sortLabels[option.value]}
                     {sort === option.value && <Check className="h-3.5 w-3.5" />}
                   </button>
                 ))}
@@ -751,10 +848,10 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                   'flex h-6 min-w-7 items-center justify-center rounded-md px-2 text-xs transition-colors',
                   viewSize === option.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
-                title={`展示区域：${option.label}`}
+                title={t('assets.displayArea', { value: viewSizeLabels[option.value] })}
               >
                 <Grid3X3 className="mr-1 h-3 w-3" />
-                {option.label}
+                {viewSizeLabels[option.value]}
               </button>
             ))}
           </div>
@@ -796,7 +893,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
               onClick={() => setSelectedTag('')}
               className={cn('inline-flex min-h-7 shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 text-xs leading-tight transition-colors', !selectedTag ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted')}
             >
-              全部
+              {t('assets.allTags')}
             </button>
             {allTags.map(tag => (
               <button
@@ -816,10 +913,10 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button variant="outline" size="sm" onClick={toggleSelectVisible} className="gap-1.5">
             <Check className="h-3.5 w-3.5" />
-            {allVisibleSelected ? '取消选择当前页' : '选择当前页'}
+            {allVisibleSelected ? t('assets.clearPageSelection') : t('assets.selectPage')}
           </Button>
           <span className="text-xs text-muted-foreground">
-            已选择 {selectedCount} 项
+            {t('assets.selectedCount', { count: selectedCount })}
           </span>
         </div>
       )}
@@ -831,8 +928,8 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
       ) : visibleAssets.length === 0 ? (
         <div className="flex min-h-72 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-8 text-center text-muted-foreground">
           <ImageIcon className="h-8 w-8 opacity-60" />
-          <p className="text-sm">{assets.length === 0 ? '暂无素材' : '没有匹配的素材'}</p>
-          <p className="text-xs">可从生成结果、本地图片或手动新建提示词添加素材。</p>
+          <p className="text-sm">{assets.length === 0 ? t('assets.empty') : t('assets.noMatch')}</p>
+          <p className="text-xs">{t('assets.emptyHint')}</p>
         </div>
       ) : (
         <div className={cn(
@@ -861,7 +958,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                       checked={selected}
                       onChange={() => toggleAssetSelection(asset.id)}
                       className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                      title="选择素材"
+                      title={t('assets.selectAsset')}
                     />
                   </label>
                   <p className={cn(
@@ -876,13 +973,30 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                       size="icon-xs"
                       onClick={() => {
                         void navigator.clipboard?.writeText(asset.content);
-                        dispatchImageActionToast('提示词已复制', 'success');
+                        dispatchImageActionToast(t('assets.promptCopied'), 'success');
                       }}
-                      title="复制提示词"
+                      title={t('assets.copyPrompt')}
                     >
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(asset)} title="删除" className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(asset)} title={t('assets.deleteAsset')} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </div>
+              );
+            }
+            if (isMediaAsset(asset)) {
+              return (
+                <div key={asset.id} className={cn('relative overflow-hidden rounded-lg border bg-card transition-colors hover:border-muted-foreground/40', selected ? 'border-primary ring-1 ring-primary/30' : 'border-border')}>
+                  <label className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded bg-black/55 text-white shadow-sm">
+                    <input type="checkbox" checked={selected} onChange={() => toggleAssetSelection(asset.id)} className="h-3.5 w-3.5 cursor-pointer accent-primary" title={t('assets.selectAsset')} />
+                  </label>
+                  <MediaThumbnail asset={asset} onPreview={() => void openMediaPreview(asset)} />
+                  <div className="flex min-h-24 flex-col p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0"><p className="truncate text-sm font-medium text-foreground" title={asset.name}>{asset.name}</p><p className="truncate text-[11px] text-muted-foreground">{asset.sourceLabel} · {formatAssetSize(asset.sizeBytes)}</p></div>
+                      <div className="flex shrink-0 gap-1"><Button variant="ghost" size="icon-xs" onClick={() => openEdit(asset)} title={t('assets.edit')}><Pencil className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="icon-xs" onClick={() => void downloadMediaAsset(asset)} title={t('assets.download')}><Download className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(asset)} title={t('assets.deleteAsset')} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button></div>
+                    </div>
+                    <div className="mt-auto flex items-center justify-between pt-2 text-[11px] text-muted-foreground"><span>{asset.kind === 'video' ? t('assets.video') : t('assets.audio')}{asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ''}</span><span>{formatDuration(asset.durationSeconds)}</span></div>
                   </div>
                 </div>
               );
@@ -903,7 +1017,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                     checked={selected}
                     onChange={() => toggleAssetSelection(asset.id)}
                     className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                    title="选择素材"
+                    title={t('assets.selectAsset')}
                   />
                 </label>
                 <div className={cn(viewSize === 'large' && 'sm:w-40 sm:shrink-0 2xl:w-44')}>
@@ -922,7 +1036,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                         <p className="truncate text-[11px] text-muted-foreground">{asset.sourceLabel} · {formatAssetSize(asset.sizeBytes)}</p>
                       )}
                     </div>
-                    <button type="button" onClick={() => openEdit(asset)} className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="编辑">
+                    <button type="button" onClick={() => openEdit(asset)} className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title={t('assets.edit')}>
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -936,10 +1050,10 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                       <div className="flex min-h-5 flex-wrap gap-1 overflow-hidden">
                         {asset.tags.length > 0
                           ? asset.tags.slice(0, 6).map(tag => <Badge key={tag} variant="outline" className="h-5 px-1.5 text-[10px]">{tag}</Badge>)
-                          : <span className="text-[11px] text-muted-foreground">无标签</span>}
+                          : <span className="text-[11px] text-muted-foreground">{t('assets.noTags')}</span>}
                       </div>
                       <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                        {asset.note || asset.prompt || '暂无备注'}
+                        {asset.note || asset.prompt || t('assets.noNote')}
                       </p>
                     </div>
                   )}
@@ -947,10 +1061,10 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                     'flex justify-end gap-1',
                     viewSize === 'compact' ? 'pt-1' : 'mt-auto pt-2'
                   )}>
-                    <Button variant="ghost" size="icon-xs" onClick={() => void runImageAction('copy', payload)} title="复制图片"><Copy className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon-xs" onClick={() => void runImageAction('download', payload)} title="下载"><Download className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon-xs" onClick={() => void runImageAction('use-as-reference', payload)} title="作为图生图参考"><Wand2 className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(asset)} title="删除" className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon-xs" onClick={() => void runImageAction('copy', payload)} title={t('assets.copyImage')}><Copy className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon-xs" onClick={() => void runImageAction('download', payload)} title={t('assets.download')}><Download className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon-xs" onClick={() => void runImageAction('use-as-reference', payload)} title={t('assets.useReference')}><Wand2 className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(asset)} title={t('assets.deleteAsset')} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
                 </div>
               </div>
@@ -962,7 +1076,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
       {visibleCount < filteredAssets.length && (
         <div className="flex justify-center">
           <Button variant="outline" onClick={() => setVisibleCount(count => count + PAGE_SIZE)}>
-            加载更多
+            {t('assets.loadMore')}
           </Button>
         </div>
       )}
@@ -970,7 +1084,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
       {previewIndex !== null && previewImages[previewIndex] && createPortal(
         <HistoryImagePreview
           images={previewImages}
-          alt="素材图片"
+          alt={t('assets.imageAlt')}
           initialIndex={previewIndex}
           onClose={closePreview}
           actionPayloads={visibleAssets.filter(isImageAsset).map(makePayload)}
@@ -992,32 +1106,32 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ImagePlus className="h-4 w-4" />
-              编辑素材
+              {t('assets.editTitle')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">名称</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('assets.name')}</label>
               <Input value={editName} onChange={event => setEditName(event.target.value)} disabled={metadataGenerating} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">标签</label>
-              <Input value={editTags} onChange={event => setEditTags(event.target.value)} placeholder="用空格或逗号分隔" disabled={metadataGenerating} />
+              <label className="text-xs font-medium text-muted-foreground">{t('assets.tags')}</label>
+              <Input value={editTags} onChange={event => setEditTags(event.target.value)} placeholder={t('assets.tagsPlaceholder')} disabled={metadataGenerating} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">备注</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('assets.note')}</label>
               <Textarea value={editNote} onChange={event => setEditNote(event.target.value)} rows={4} disabled={metadataGenerating} />
             </div>
             {editingAsset && (
               <p className="text-xs text-muted-foreground">
-                来源：{editingAsset.sourceLabel} · {editingAsset.width && editingAsset.height ? `${editingAsset.width}×${editingAsset.height} · ` : ''}{formatAssetSize(editingAsset.sizeBytes)}
+                {t('assets.sourceInfo', { source: editingAsset.sourceLabel, details: `${editingAsset.width && editingAsset.height ? `${editingAsset.width}×${editingAsset.height} · ` : ''}${formatAssetSize(editingAsset.sizeBytes)}` })}
               </p>
             )}
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
+            {editingAsset && isImageAsset(editingAsset) && <div className="rounded-lg border border-border bg-muted/30 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs font-medium text-foreground">AI 生成素材信息</p>
-                  <p className="text-[11px] text-muted-foreground">生成后先预览，应用后再保存。</p>
+                  <p className="text-xs font-medium text-foreground">{t('assets.aiMetadata')}</p>
+                  <p className="text-[11px] text-muted-foreground">{t('assets.aiMetadataHint')}</p>
                 </div>
                 <Button
                   variant="outline"
@@ -1027,17 +1141,17 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                   disabled={metadataGenerating}
                 >
                   {metadataGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  {metadataGenerating ? '生成中…' : '生成建议'}
+                  {metadataGenerating ? t('assets.generating') : t('assets.generateSuggestion')}
                 </Button>
               </div>
               {metadataSuggestion && (
                 <div className="mt-3 space-y-2 border-t border-border pt-3">
                   <div className="space-y-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">建议标题</p>
+                    <p className="text-[11px] font-medium text-muted-foreground">{t('assets.suggestedTitle')}</p>
                     <p className="rounded-md bg-background px-2 py-1 text-sm">{metadataSuggestion.name}</p>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">建议标签</p>
+                    <p className="text-[11px] font-medium text-muted-foreground">{t('assets.suggestedTags')}</p>
                     <div className="flex flex-wrap gap-1 rounded-md bg-background p-2">
                       {metadataSuggestion.tags.map(tag => (
                         <Badge key={tag} variant="outline">{tag}</Badge>
@@ -1045,16 +1159,16 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">建议备注</p>
+                    <p className="text-[11px] font-medium text-muted-foreground">{t('assets.suggestedNote')}</p>
                     <p className="whitespace-pre-wrap rounded-md bg-background px-2 py-1 text-sm leading-relaxed">{metadataSuggestion.note}</p>
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setMetadataSuggestion(null)} disabled={metadataGenerating}>丢弃建议</Button>
-                    <Button size="sm" onClick={applyMetadataSuggestion} disabled={metadataGenerating}>应用到表单</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setMetadataSuggestion(null)} disabled={metadataGenerating}>{t('assets.discardSuggestion')}</Button>
+                    <Button size="sm" onClick={applyMetadataSuggestion} disabled={metadataGenerating}>{t('assets.applySuggestion')}</Button>
                   </div>
                 </div>
               )}
-            </div>
+            </div>}
             <div className="flex justify-end gap-2 border-t pt-3">
               <Button
                 variant="outline"
@@ -1064,10 +1178,10 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                 }}
                 disabled={metadataGenerating}
               >
-                取消
+                {t('assets.cancel')}
               </Button>
               <Button onClick={() => void saveEdit()} disabled={metadataGenerating}>
-                保存
+                {t('assets.save')}
               </Button>
             </div>
           </div>
@@ -1079,7 +1193,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              新建提示词素材
+              {t('assets.newPromptTitle')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
@@ -1087,7 +1201,7 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
               value={textContent}
               onChange={event => setTextContent(event.target.value)}
               rows={8}
-              placeholder="粘贴或输入提示词..."
+              placeholder={t('assets.promptPlaceholder')}
             />
             <div className="flex justify-end gap-2 border-t pt-3">
               <Button
@@ -1097,21 +1211,28 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                   setTextContent('');
                 }}
               >
-                取消
+                {t('assets.cancel')}
               </Button>
               <Button onClick={() => void saveTextAsset()} disabled={!textContent.trim()}>
-                保存
+                {t('assets.save')}
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(previewMedia)} onOpenChange={open => { if (!open) { if (previewMedia?.url) URL.revokeObjectURL(previewMedia.url); setPreviewMedia(null); } }}>
+        <DialogContent className="max-w-3xl overflow-hidden p-2 sm:p-4">
+          <DialogHeader className="px-2 pt-2"><DialogTitle className="truncate text-sm">{previewMedia?.asset.name}</DialogTitle></DialogHeader>
+          {previewMedia?.asset.kind === 'video' ? <video src={previewMedia.url} controls autoPlay className="max-h-[70vh] w-full bg-black object-contain" /> : previewMedia ? <audio src={previewMedia.url} controls autoPlay className="w-full" /> : null}
+        </DialogContent>
+      </Dialog>
+
       {deleteTarget && createPortal(
         <ConfirmDialog
-          title="删除素材"
-          message={`确定要删除「${isTextAsset(deleteTarget) ? deleteTarget.content.slice(0, 30) || '提示词素材' : deleteTarget.name}」吗？不会删除历史生成记录。`}
-          confirmText="删除"
+          title={t('assets.deleteConfirmTitle')}
+          message={t('assets.deleteConfirm', { name: isTextAsset(deleteTarget) ? deleteTarget.content.slice(0, 30) || t('assets.newPromptTitle') : deleteTarget.name })}
+          confirmText={t('assets.delete')}
           onConfirm={() => void confirmDelete()}
           onCancel={() => setDeleteTarget(null)}
         />,
@@ -1120,9 +1241,9 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
 
       {deleteSelectedOpen && createPortal(
         <ConfirmDialog
-          title="删除选中素材"
-          message={`确定要删除选中的 ${selectedCount} 项素材吗？不会删除历史生成记录。`}
-          confirmText="删除"
+          title={t('assets.deleteSelectedTitle')}
+          message={t('assets.deleteSelectedConfirm', { count: selectedCount })}
+          confirmText={t('assets.delete')}
           onConfirm={() => void confirmDeleteSelected()}
           onCancel={() => setDeleteSelectedOpen(false)}
         />,

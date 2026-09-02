@@ -324,7 +324,7 @@ export function WorkspaceShell() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="video-generation" keepMounted className={cn(wideMode ? 'xl:flex xl:min-h-0 xl:flex-1' : 'space-y-3')}>
+              <TabsContent value="video-generation" keepMounted className={cn(wideMode ? 'xl:flex xl:min-h-0 xl:min-w-0 xl:flex-1' : 'space-y-3')}>
                 <VideoGenerationWorkspace
                   wideMode={wideMode}
                   onConfigureApiKey={() => setSettingsOpen(true)}
