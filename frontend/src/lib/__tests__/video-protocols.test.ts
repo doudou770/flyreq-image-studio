@@ -120,6 +120,16 @@ describe('视频协议适配器', () => {
     expect(normalizeVideoPollResult('openai', { status: 'expired' }, 'https://api.example', 'video-openai')).toEqual({ state: 'failed' });
   });
 
+  it('识别异步兼容服务在 data 数组中返回的视频地址', () => {
+    expect(normalizeVideoPollResult('new-api', {
+      status: 'completed',
+      data: [{ url: 'https://cdn.example/generated.mp4' }],
+    }, 'https://api.example', 'task-new')).toEqual({
+      state: 'completed',
+      remoteUrl: 'https://cdn.example/generated.mp4',
+    });
+  });
+
   it('非 OpenAI 完成态缺少视频地址时立即标记为格式无效', () => {
     expect(normalizeVideoPollResult('xai', { status: 'completed' }, 'https://api.example', 'request-xai')).toEqual({ state: 'invalid' });
     expect(normalizeVideoPollResult('new-api', { status: 'completed' }, 'https://api.example', 'task-new')).toEqual({ state: 'invalid' });

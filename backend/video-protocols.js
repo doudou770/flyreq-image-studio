@@ -184,8 +184,10 @@ function normalizeVideoPollResult(protocol, data, baseUrl, taskId) {
   const status = String(data?.status || '').toLowerCase();
   if (['failed', 'cancelled', 'expired'].includes(status)) return { state: 'failed' };
 
-  // 不论请求协议为何，优先识别第三方兼容服务常见的两种直接结果地址。
-  const remoteUrl = [data?.video?.url, data?.url].find(value => typeof value === 'string' && value.trim());
+  // 不论请求协议为何，优先识别第三方兼容服务常见的直接结果地址。
+  // 部分异步聚合服务会沿用图片生成响应结构，将视频地址放在 data 数组首项中。
+  const remoteUrl = [data?.video?.url, data?.url, data?.data?.[0]?.url]
+    .find(value => typeof value === 'string' && value.trim());
   if (remoteUrl) return { state: 'completed', remoteUrl: resolveVideoRemoteUrl(remoteUrl, baseUrl) };
 
   // OpenAI 官方完成态不返回结果 URL，需要通过同一任务的 content 端点下载。
