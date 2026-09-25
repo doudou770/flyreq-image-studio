@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   ChevronsUpDown,
+  Copy,
   Database,
   Download,
   ExternalLink,
@@ -33,6 +34,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { BackupProgress } from '@/components/BackupProgress';
@@ -78,6 +80,7 @@ import { BA_RANDOM_URL, BING_WALLPAPER_URL, IMAGE_MODEL_KEY_GUIDE } from '@/lib/
 import { PROMPT_DATA_SOURCES, getPromptSourceLabel } from '@/lib/prompt-gallery-data';
 import { getOutputSizeLabel } from '@/lib/model-capabilities';
 import { getVideoProtocolConfig } from '@/lib/video-config';
+import { appendImportedModelConfig, exportModelConfigText, importModelConfigText } from '@/lib/model-config-transfer';
 import { useBranding } from '@/components/BrandProvider';
 import { useI18n } from '@/components/LanguageProvider';
 import { clearModelCatalogCache, getModelCatalogCache, isModelCatalogCacheStale, loadModelCatalogCache, pruneModelCatalogCache, saveModelCatalogCache } from '@/lib/model-catalog-cache';
@@ -575,6 +578,9 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
   const [isBackupActive, setIsBackupActive] = useState(false);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [backupSuccess, setBackupSuccess] = useState<string | null>(null);
+  const [modelConfigText, setModelConfigText] = useState('');
+  const [modelConfigError, setModelConfigError] = useState<string | null>(null);
+  const [modelConfigSuccess, setModelConfigSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1101,6 +1107,46 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
       setBackupError(err instanceof Error ? err.message : t('settings.exportFailed'));
     } finally {
       setIsBackupActive(false);
+    }
+  };
+
+  /** 将当前编辑中的模型配置压缩为可复制的文本，并显示在配置文本框中。 */
+  const handleExportModelConfig = (): void => {
+    setModelConfigText(exportModelConfigText({ schemaVersion: 2, imageModels, videoModels, textModels, defaults }));
+    setModelConfigError(null);
+    setModelConfigSuccess(t('settings.modelConfigExportReady'));
+  };
+
+  /** 将配置文本复制到系统剪贴板。 */
+  const handleCopyModelConfig = async (): Promise<void> => {
+    if (!modelConfigText) return;
+    try {
+      await navigator.clipboard.writeText(modelConfigText);
+      setModelConfigSuccess(t('settings.modelConfigCopied'));
+      setModelConfigError(null);
+    } catch {
+      setModelConfigError(t('settings.modelConfigCopyFailed'));
+      setModelConfigSuccess(null);
+    }
+  };
+
+  /** 解析配置文本并将所有导入模型直接追加到当前设置草稿中。 */
+  const handleImportModelConfig = (): void => {
+    try {
+      const imported = importModelConfigText(modelConfigText);
+      const merged = appendImportedModelConfig({ schemaVersion: 2, imageModels, videoModels, textModels, defaults }, imported);
+      setImageModels(merged.imageModels.map(cloneImageModel));
+      setVideoModels(merged.videoModels.map(cloneVideoModel));
+      setTextModels(merged.textModels.map(cloneTextModel));
+      setDefaults({ ...merged.defaults });
+      setSelectedImageModelId(merged.defaults.textToImage || merged.imageModels[0]?.id || '');
+      setSelectedVideoModelId(merged.defaults.videoGeneration || merged.videoModels[0]?.id || '');
+      setSelectedTextModelId(merged.defaults.promptOptimize || merged.textModels[0]?.id || '');
+      setModelConfigSuccess(t('settings.modelConfigImportSuccess', { image: imported.i.length, video: imported.v.length, text: imported.t.length }));
+      setModelConfigError(null);
+    } catch (error) {
+      setModelConfigError(error instanceof Error ? error.message : t('settings.modelConfigImportFailed'));
+      setModelConfigSuccess(null);
     }
   };
 
@@ -1637,6 +1683,40 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, externalModelCo
                   <p className="text-sm text-destructive break-all">{backupError}</p>
                 </div>
               )}
+
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex items-start gap-3">
+                  <Settings className="mt-0.5 h-5 w-5 text-muted-foreground" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <h4 className="font-medium">{t('settings.modelConfigTransferTitle')}</h4>
+                    <p className="text-sm text-muted-foreground">{t('settings.modelConfigTransferDescription')}</p>
+                    <p className="text-xs text-destructive">{t('settings.modelConfigTransferWarning')}</p>
+                    <Textarea
+                      value={modelConfigText}
+                      onChange={(event) => setModelConfigText(event.target.value)}
+                      placeholder={t('settings.modelConfigTransferPlaceholder')}
+                      className="min-h-28 resize-y break-all font-mono text-xs"
+                      aria-label={t('settings.modelConfigTransferTitle')}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" onClick={handleExportModelConfig} className="gap-2">
+                        <Download className="h-4 w-4" />
+                        {t('settings.exportModelConfig')}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={handleCopyModelConfig} disabled={!modelConfigText} className="gap-2">
+                        <Copy className="h-4 w-4" />
+                        {t('settings.copyModelConfig')}
+                      </Button>
+                      <Button type="button" onClick={handleImportModelConfig} disabled={!modelConfigText} className="gap-2">
+                        <Upload className="h-4 w-4" />
+                        {t('settings.importModelConfig')}
+                      </Button>
+                    </div>
+                    {modelConfigSuccess && <p className="text-sm text-emerald-700 dark:text-emerald-400">{modelConfigSuccess}</p>}
+                    {modelConfigError && <p className="break-all text-sm text-destructive">{modelConfigError}</p>}
+                  </div>
+                </div>
+              </div>
 
               <div className="space-y-3 rounded-lg border p-4">
                 <div className="flex items-start gap-3">
